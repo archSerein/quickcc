@@ -29,20 +29,6 @@ impl Source {
         }
     }
 
-    // 判断当前符号是否为空白符（或者多个重复字符只需要保留一个的情况）
-    pub fn is_invisible_char(c: u8) -> bool {
-        match c {
-            // 空格
-            32 => true,
-            // \r\n
-            10 | 13 => true,
-            // tab
-            9 | 11 => true,
-            // other
-            _ => false,
-        }
-    }
-
     pub fn newline() -> u8 {
         10
     }
@@ -50,13 +36,19 @@ impl Source {
     pub fn get_char(&mut self) -> Option<char> {
         if self.pointer < self.len {
             let c = self.buffer[self.pointer];
-            if c.is_ascii() {
-                Some(c as char)
-            } else {
-                None
-            }
+            if c.is_ascii() { Some(c as char) } else { None }
         } else {
             None
+        }
+    }
+
+    pub fn update_pointer(&mut self, n: usize) {
+        self.pointer += n;
+        if self.buffer[self.pointer] == Source::newline() {
+            self.row -= 1;
+        }
+        if self.col != 0 {
+            self.col -= 1;
         }
     }
 
@@ -70,23 +62,9 @@ impl Source {
         c
     }
 
-    pub fn back_pointer(&mut self) {
-        self.pointer -= 1;
-        if self.buffer[self.pointer] == Source::newline() {
-            self.row -= 1;
-        }
-        if self.col != 0 {
-            self.col -= 1;
-        }
-    }
-
     // 返回当前指针处理到的位置
     pub fn position(&self) -> (u32, u32) {
         (self.row, self.col)
-    }
-
-    pub fn next_pointer(&mut self) {
-        self.pointer += 1
     }
 
     // 获得指定范围的字符并组成一个String返回
@@ -97,10 +75,6 @@ impl Source {
             word.push(*c as char);
         }
         word
-    }
-
-    pub fn get_pointer(&self) -> usize {
-        self.pointer
     }
 
     pub fn add_row(&mut self) {
