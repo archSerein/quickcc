@@ -15,7 +15,6 @@ fn main() {
         None => panic!("Get filename error!"),
     };
 
-    println!("parse begin");
     let lexer_tokens = lexer::parse::run(&filename[..]);
     print_tokens(lexer_tokens);
     // let ast_tokens =

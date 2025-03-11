@@ -1,3 +1,5 @@
+use crate::lexer::NEWLINE;
+
 use super::file::Source;
 use super::helper::*;
 use std::panic;
@@ -16,16 +18,19 @@ pub fn run(filepath: &str) -> Vec<Token> {
     let mut token: Vec<char> = Vec::new();
 
     while let Some(c) = f.get_char() {
-        println!("{:?}->{:#?}", c, state);
         let nc = f.look_forward();
-        if let Some(next) = translation(c, nc, state) {
+        if let Some(next) = transition(c, nc, state) {
             state = next;
         } else {
             panic!("Error: unexpected state!");
         }
+        f.update_pointer(1);
         match state {
             State::Accepted(ref t) => {
-                println!("{:?}", token);
+                let need_push = c as u8 != super::NEWLINE && c as u8 != super::SPACE;
+                if need_push {
+                    token.push(c);
+                }
                 match *t {
                     WordType::Identifier => {
                         if is_reserved_word(token.iter().collect()) {
@@ -78,9 +83,9 @@ pub fn run(filepath: &str) -> Vec<Token> {
                                     value: token.iter().collect(),
                                 });
                             }
-                            BinaryType::Bin => {
+                            BinaryType::Unknown => {
                                 tokens.push(Token {
-                                    token_type: "bin".to_string(),
+                                    token_type: "unknown".to_string(),
                                     value: token.iter().collect(),
                                 });
                             }
@@ -103,18 +108,33 @@ pub fn run(filepath: &str) -> Vec<Token> {
                                 value: token.iter().collect(),
                             });
                         }
+                        LiteralType::Unknown => {
+                            tokens.push(Token {
+                                token_type: "unknown".to_string(),
+                                value: token.iter().collect(),
+                            });
+                        }
                     },
                     WordType::String => {
+                        while let Some(c) = f.get_char() {
+                            f.update_pointer(1);
+                            token.push(c);
+                            if c == '"' {
+                                break;
+                            }
+                        }
                         tokens.push(Token {
                             token_type: "string".to_string(),
                             value: token.iter().collect(),
                         });
                     }
                     WordType::Comment => {
-                        tokens.push(Token {
-                            token_type: "comment".to_string(),
-                            value: token.iter().collect(),
-                        });
+                        while let Some(c) = f.get_char() {
+                            f.update_pointer(1);
+                            if c as u8 == NEWLINE {
+                                break;
+                            }
+                        }
                     }
                     WordType::Unknown => {
                         tokens.push(Token {
@@ -123,20 +143,21 @@ pub fn run(filepath: &str) -> Vec<Token> {
                         });
                     }
                 }
+                token.clear();
+                state = state_init();
             }
             State::Unaccepted => {
                 let info = f.position();
                 panic!("Error->position ({}, {})!", info.0, info.1);
             }
             State::Handling(_) => {
-                token.push(c);
-                if (c as u8) == 0xa {
+                if (c as u8) == NEWLINE {
                     f.add_row();
                     f.init_col();
                 } else {
                     f.add_col();
+                    token.push(c);
                 }
-                f.update_pointer(1);
             }
             State::Init => {
                 // donothing

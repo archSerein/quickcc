@@ -29,10 +29,6 @@ impl Source {
         }
     }
 
-    pub fn newline() -> u8 {
-        10
-    }
-
     pub fn get_char(&mut self) -> Option<char> {
         if self.pointer < self.len {
             let c = self.buffer[self.pointer];
@@ -44,9 +40,6 @@ impl Source {
 
     pub fn update_pointer(&mut self, n: usize) {
         self.pointer += n;
-        if self.buffer[self.pointer] == Source::newline() {
-            self.row -= 1;
-        }
         if self.col != 0 {
             self.col -= 1;
         }
@@ -65,16 +58,6 @@ impl Source {
     // 返回当前指针处理到的位置
     pub fn position(&self) -> (u32, u32) {
         (self.row, self.col)
-    }
-
-    // 获得指定范围的字符并组成一个String返回
-    pub fn get_word(&self, start: usize, end: usize) -> String {
-        let tmp_vec = &self.buffer[start..end];
-        let mut word = String::with_capacity(end - start + 1);
-        for c in tmp_vec {
-            word.push(*c as char);
-        }
-        word
     }
 
     pub fn add_row(&mut self) {

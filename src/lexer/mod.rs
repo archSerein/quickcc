@@ -5,3 +5,5 @@ pub mod helper;
 // 模块入口
 pub mod parse;
 
+pub const NEWLINE: u8 = 0xa;
+pub const SPACE: u8 = 0x20;

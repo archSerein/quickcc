@@ -1,9 +1,11 @@
+use super::SPACE;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinaryType {
     Hex,
     Oct,
     Dec,
-    Bin,
+    Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -12,6 +14,7 @@ pub enum LiteralType {
     Float,
     Char,
     Bool,
+    Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -34,21 +37,52 @@ pub enum State {
     Init,
 }
 
-pub fn translation(c: char, nc: Option<char>, state: State) -> Option<State> {
+pub fn state_init() -> State {
+    State::Init
+}
+pub fn transition(c: char, nc: Option<char>, state: State) -> Option<State> {
     match state {
         State::Init => {
             if is_invisible_char(c as u8) {
                 Some(State::Init)
+            } else if is_separator(c) {
+                Some(State::Accepted(WordType::Separator))
+            } else if is_operator(c) {
+                let next_c = nc.unwrap_or(' ');
+                let next_state = WordType::word_type(c, next_c, WordType::Operator);
+                if next_c as u8 == SPACE || is_separator(next_c) {
+                    Some(State::Accepted(next_state))
+                } else {
+                    Some(State::Handling(next_state))
+                }
+            } else if is_valid_char(c) {
+                let next_c = nc.unwrap_or(' ');
+                let next_type = WordType::word_type(c, next_c, WordType::Unknown);
+                if next_c as u8 == SPACE || is_separator(next_c) {
+                    Some(State::Accepted(next_type))
+                } else {
+                    Some(State::Handling(next_type))
+                }
+            } else if c as u8 == 0x22 {
+                Some(State::Handling(WordType::String))
+            } else if c as u8 == 0x27 {
+                Some(State::Handling(WordType::Literal(LiteralType::Char)))
             } else {
-                Some(State::Handling(WordType::Unknown))
+                Some(State::Unaccepted)
             }
         }
-
         State::Handling(current_type) => {
-            // 安全地处理 Option<char>
             let next_c = nc.unwrap_or(' '); // 如果 None，则默认 ' '
-            let next_type = WordType::word_type(c, next_c, current_type);
-            Some(State::Handling(next_type))
+            if is_separator(next_c) || next_c as u8 == SPACE {
+                Some(State::Accepted(current_type))
+            } else {
+                let next_type = WordType::word_type(c, next_c, current_type);
+                if current_type != WordType::Unknown && next_type == WordType::Unknown {
+                    Some(State::Unaccepted)
+                } else {
+                    Some(State::Handling(next_type))
+                }
+            }
         }
 
         State::Accepted(_) | State::Unaccepted => Some(State::Init),
@@ -68,26 +102,61 @@ pub fn is_invisible_char(c: u8) -> bool {
     }
 }
 
+pub fn is_separator(c: char) -> bool {
+    matches!(c, '(' | ')' | '{' | '}' | '[' | ']' | ';' | ',' | ':' | '.')
+}
+
+pub fn is_operator(c: char) -> bool {
+    matches!(
+        c,
+        '+' | '-' | '*' | '/' | '%' | '=' | '!' | '>' | '<' | '&' | '|' | '^' | '~'
+    )
+}
+
+pub fn is_valid_char(c: char) -> bool {
+    let is_alpha = c.is_ascii_alphabetic();
+    let is_digit = c.is_ascii_digit();
+    let is_special = matches!(c, '_' | '$');
+    is_alpha || is_digit || is_special
+}
+
 impl LiteralType {
-    pub fn literal_type(c: char, nc: char) -> Option<LiteralType> {
-        if c == '0' {
-            match nc {
-                'x' => Some(LiteralType::Integer(BinaryType::Hex)),
-                'b' => Some(LiteralType::Integer(BinaryType::Bin)),
-                _ if nc > '0' && nc < '8' => Some(LiteralType::Integer(BinaryType::Oct)),
-                _ if is_invisible_char(nc as u8) => Some(LiteralType::Integer(BinaryType::Dec)),
+    pub fn literal_type(c: char, nc: char, state: LiteralType) -> Option<LiteralType> {
+        match state {
+            LiteralType::Integer(ref t) => {
+                if let Some(next_state) = BinaryType::binary_type(c, nc, *t) {
+                    Some(LiteralType::Integer(next_state))
+                } else {
+                    None
+                }
+            }
+            LiteralType::Float => match c {
+                '0'..='9' => Some(LiteralType::Float),
                 _ => None,
+            },
+            LiteralType::Char => {
+                if c.is_ascii() && nc as u8 == 0x27 {
+                    Some(LiteralType::Char)
+                } else {
+                    None
+                }
             }
-        } else if c > '0' && c <= '9' {
-            if nc >= '0' && nc <= '9' {
-                Some(LiteralType::Integer(BinaryType::Dec))
-            } else if nc == '.' {
-                Some(LiteralType::Float)
-            } else {
-                None
-            }
-        } else {
-            None
+            LiteralType::Bool => match c {
+                't' | 'r' | 'u' | 'e' | 'f' | 'a' | 'l' | 's' => Some(LiteralType::Bool),
+                _ => None,
+            },
+            LiteralType::Unknown => match c {
+                '0'..='9' => {
+                    if let Some(t) = BinaryType::binary_type(c, nc, BinaryType::Unknown) {
+                        Some(LiteralType::Integer(t))
+                    } else {
+                        Some(LiteralType::Integer(BinaryType::Dec))
+                    }
+                }
+                '\'' => Some(LiteralType::Char),
+                't' | 'r' | 'u' | 'e' | 'f' | 'a' | 'l' | 's' => Some(LiteralType::Bool),
+                _ => None,
+            },
         }
     }
 }
@@ -98,7 +167,7 @@ impl WordType {
             WordType::Unknown => match c {
                 'a'..='z' | 'A'..='Z' | '_' => WordType::Identifier,
                 '0'..='9' => {
-                    if let Some(t) = LiteralType::literal_type(c, nc) {
+                    if let Some(t) = LiteralType::literal_type(c, nc, LiteralType::Unknown) {
                         WordType::Literal(t)
                     } else {
                         WordType::Unknown
@@ -110,14 +179,22 @@ impl WordType {
                 'a'..='z' | 'A'..='Z' | '_' | '0'..='9' => WordType::Identifier,
                 _ => WordType::Unknown,
             },
-            WordType::Literal(_) => match c {
-                '0'..='9' => WordType::Literal(LiteralType::Integer(BinaryType::Dec)),
-                '.' => WordType::Literal(LiteralType::Float),
-                _ => WordType::Unknown,
-            },
+            WordType::Literal(ref t) => {
+                if let Some(next_state) = LiteralType::literal_type(c, nc, *t) {
+                    WordType::Literal(next_state)
+                } else {
+                    WordType::Unknown
+                }
+            }
             WordType::String => WordType::String,
             WordType::Comment => WordType::Comment,
-            WordType::Operator => WordType::Operator,
+            WordType::Operator => {
+                if c == '/' && nc == '/' {
+                    WordType::Comment
+                } else {
+                    WordType::Operator
+                }
+            }
             WordType::Separator => WordType::Separator,
             WordType::Keyword => WordType::Keyword,
         }
@@ -125,10 +202,9 @@ impl WordType {
 }
 
 impl BinaryType {
-    pub fn binary_type(c: char) -> Option<BinaryType> {
+    pub fn binary_type(c: char, nc: char, state: BinaryType) -> Option<BinaryType> {
         match c {
             'x' => Some(BinaryType::Hex),
-            'b' => Some(BinaryType::Bin),
             _ => None,
         }
     }
@@ -137,6 +213,16 @@ impl BinaryType {
 pub fn is_reserved_word(word: String) -> bool {
     matches!(
         word.as_str(),
-        "if" | "else" | "while" | "for" | "return" | "break" | "continue"
+        "if" | "else"
+            | "while"
+            | "for"
+            | "return"
+            | "break"
+            | "continue"
+            | "int"
+            | "float"
+            | "double"
+            | "char"
+            | "main"
     )
 }
