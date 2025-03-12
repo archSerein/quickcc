@@ -40,9 +40,6 @@ impl Source {
 
     pub fn update_pointer(&mut self, n: usize) {
         self.pointer += n;
-        if self.col != 0 {
-            self.col -= 1;
-        }
     }
 
     // 向前查看一个字符
@@ -60,13 +57,21 @@ impl Source {
         (self.row, self.col)
     }
 
-    pub fn add_row(&mut self) {
+    fn add_row(&mut self) {
         self.row += 1;
     }
-    pub fn add_col(&mut self) {
+    fn add_col(&mut self) {
         self.col += 1;
     }
     pub fn init_col(&mut self) {
         self.col = 1;
+    }
+    pub fn update_position(&mut self, c: char) {
+        if c as u8 == super::NEWLINE {
+            self.add_row();
+            self.init_col();
+        } else {
+            self.add_col();
+        }
     }
 }

@@ -13,14 +13,12 @@ pub enum LiteralType {
     Integer(BinaryType),
     Float,
     Char,
-    Bool,
     Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WordType {
     Identifier,
-    Keyword,
     Operator,
     Separator,
     Literal(LiteralType),
@@ -49,19 +47,28 @@ pub fn transition(c: char, nc: Option<char>, state: State) -> Option<State> {
                 Some(State::Accepted(WordType::Separator))
             } else if is_operator(c) {
                 let next_c = nc.unwrap_or(' ');
-                let next_state = WordType::word_type(c, next_c, WordType::Operator);
-                if next_c as u8 == SPACE || is_separator(next_c) {
-                    Some(State::Accepted(next_state))
+                if !is_operator(next_c) {
+                    Some(State::Accepted(WordType::Operator))
+                } else if let Some(next_type) =
+                    WordType::cal_word_type(c, next_c, WordType::Operator)
+                {
+                    Some(State::Handling(next_type))
                 } else {
-                    Some(State::Handling(next_state))
+                    Some(State::Unaccepted)
                 }
             } else if is_valid_char(c) {
                 let next_c = nc.unwrap_or(' ');
-                let next_type = WordType::word_type(c, next_c, WordType::Unknown);
-                if next_c as u8 == SPACE || is_separator(next_c) {
-                    Some(State::Accepted(next_type))
+                let next_type = WordType::cal_word_type(c, next_c, WordType::Unknown);
+                if next_c as u8 == SPACE || is_separator(next_c) || is_operator(next_c) {
+                    if let Some(next) = next_type {
+                        Some(State::Accepted(next))
+                    } else {
+                        Some(State::Unaccepted)
+                    }
+                } else if let Some(next) = next_type {
+                    Some(State::Handling(next))
                 } else {
-                    Some(State::Handling(next_type))
+                    Some(State::Unaccepted)
                 }
             } else if c as u8 == 0x22 {
                 Some(State::Handling(WordType::String))
@@ -74,13 +81,20 @@ pub fn transition(c: char, nc: Option<char>, state: State) -> Option<State> {
         State::Handling(current_type) => {
             let next_c = nc.unwrap_or(' '); // 如果 None，则默认 ' '
             if is_separator(next_c) || next_c as u8 == SPACE {
-                Some(State::Accepted(current_type))
-            } else {
-                let next_type = WordType::word_type(c, next_c, current_type);
-                if current_type != WordType::Unknown && next_type == WordType::Unknown {
-                    Some(State::Unaccepted)
+                let next_type = WordType::cal_word_type(c, next_c, current_type);
+                if let Some(next) = next_type {
+                    Some(State::Accepted(next))
                 } else {
-                    Some(State::Handling(next_type))
+                    Some(State::Unaccepted)
+                }
+            } else {
+                let next_type = WordType::cal_word_type(c, next_c, current_type);
+                match next_type {
+                    Some(next) => match next {
+                        WordType::Unknown => Some(State::Accepted(current_type)),
+                        _ => Some(State::Handling(next)),
+                    },
+                    None => Some(State::Unaccepted),
                 }
             }
         }
@@ -103,7 +117,7 @@ pub fn is_invisible_char(c: u8) -> bool {
 }
 
 pub fn is_separator(c: char) -> bool {
-    matches!(c, '(' | ')' | '{' | '}' | '[' | ']' | ';' | ',' | ':' | '.')
+    matches!(c, '(' | ')' | '{' | '}' | '[' | ']' | ';' | ',' | ':')
 }
 
 pub fn is_operator(c: char) -> bool {
@@ -121,11 +135,13 @@ pub fn is_valid_char(c: char) -> bool {
 }
 
 impl LiteralType {
-    pub fn literal_type(c: char, nc: char, state: LiteralType) -> Option<LiteralType> {
+    pub fn cal_literal_type(c: char, nc: char, state: LiteralType) -> Option<LiteralType> {
         match state {
             LiteralType::Integer(ref t) => {
-                if let Some(next_state) = BinaryType::binary_type(c, nc, *t) {
+                if let Some(next_state) = BinaryType::cal_binary_type(c, nc, *t) {
                     Some(LiteralType::Integer(next_state))
+                } else if c == '.' {
+                    Some(LiteralType::Float)
                 } else {
                     None
                 }
@@ -135,26 +151,18 @@ impl LiteralType {
                 _ => None,
             },
             LiteralType::Char => {
-                if c.is_ascii() && nc as u8 == 0x27 {
+                if c.is_ascii() && c != '\'' {
                     Some(LiteralType::Char)
+                } else if c == '\'' {
+                    Some(LiteralType::Unknown)
                 } else {
                     None
                 }
             }
-            LiteralType::Bool => match c {
-                't' | 'r' | 'u' | 'e' | 'f' | 'a' | 'l' | 's' => Some(LiteralType::Bool),
-                _ => None,
-            },
             LiteralType::Unknown => match c {
-                '0'..='9' => {
-                    if let Some(t) = BinaryType::binary_type(c, nc, BinaryType::Unknown) {
-                        Some(LiteralType::Integer(t))
-                    } else {
-                        Some(LiteralType::Integer(BinaryType::Dec))
-                    }
-                }
+                '0'..='9' => BinaryType::cal_binary_type(c, nc, BinaryType::Unknown)
+                    .map(LiteralType::Integer),
                 '\'' => Some(LiteralType::Char),
-                't' | 'r' | 'u' | 'e' | 'f' | 'a' | 'l' | 's' => Some(LiteralType::Bool),
                 _ => None,
             },
         }
@@ -162,50 +170,82 @@ impl LiteralType {
 }
 
 impl WordType {
-    pub fn word_type(c: char, nc: char, state: WordType) -> WordType {
+    pub fn cal_word_type(c: char, nc: char, state: WordType) -> Option<WordType> {
         match state {
             WordType::Unknown => match c {
-                'a'..='z' | 'A'..='Z' | '_' => WordType::Identifier,
-                '0'..='9' => {
-                    if let Some(t) = LiteralType::literal_type(c, nc, LiteralType::Unknown) {
-                        WordType::Literal(t)
-                    } else {
-                        WordType::Unknown
-                    }
-                }
-                _ => WordType::Unknown,
+                'a'..='z' | 'A'..='Z' | '_' => Some(WordType::Identifier),
+                '0'..='9' => LiteralType::cal_literal_type(c, nc, LiteralType::Unknown)
+                    .map(WordType::Literal),
+                _ => None,
             },
             WordType::Identifier => match c {
-                'a'..='z' | 'A'..='Z' | '_' | '0'..='9' => WordType::Identifier,
-                _ => WordType::Unknown,
+                'a'..='z' | 'A'..='Z' | '_' | '0'..='9' => Some(WordType::Identifier),
+                _ => None,
             },
             WordType::Literal(ref t) => {
-                if let Some(next_state) = LiteralType::literal_type(c, nc, *t) {
-                    WordType::Literal(next_state)
-                } else {
-                    WordType::Unknown
-                }
+                LiteralType::cal_literal_type(c, nc, *t).map(WordType::Literal)
             }
-            WordType::String => WordType::String,
-            WordType::Comment => WordType::Comment,
+            WordType::String => Some(WordType::String),
+            WordType::Comment => Some(WordType::Comment),
             WordType::Operator => {
-                if c == '/' && nc == '/' {
-                    WordType::Comment
+                if is_comment(c, nc) {
+                    Some(WordType::Comment)
+                } else if is_operator(c) {
+                    if !is_operator(nc) {
+                        Some(WordType::Unknown)
+                    } else {
+                        Some(WordType::Operator)
+                    }
                 } else {
-                    WordType::Operator
+                    None
                 }
             }
-            WordType::Separator => WordType::Separator,
-            WordType::Keyword => WordType::Keyword,
+            WordType::Separator => Some(WordType::Separator),
         }
     }
 }
 
 impl BinaryType {
-    pub fn binary_type(c: char, nc: char, state: BinaryType) -> Option<BinaryType> {
-        match c {
-            'x' => Some(BinaryType::Hex),
-            _ => None,
+    pub fn cal_binary_type(c: char, nc: char, state: BinaryType) -> Option<BinaryType> {
+        match state {
+            BinaryType::Hex => match c {
+                '0'..='9' | 'a'..='f' | 'A'..='F' => Some(BinaryType::Hex),
+                _ => None,
+            },
+            BinaryType::Oct => match c {
+                '0'..='7' => Some(BinaryType::Oct),
+                _ => None,
+            },
+            BinaryType::Dec => {
+                if c.is_numeric() {
+                    Some(BinaryType::Dec)
+                } else {
+                    None
+                }
+            }
+            BinaryType::Unknown => match c {
+                '1'..='9' => {
+                    if nc.is_numeric() || is_separator(nc) {
+                        Some(BinaryType::Dec)
+                    } else if nc == '.' {
+                        Some(BinaryType::Unknown)
+                    } else {
+                        None
+                    }
+                }
+                '0' => match nc {
+                    'X' | 'x' => Some(BinaryType::Hex),
+                    '0'..'7' => Some(BinaryType::Oct),
+                    _ => {
+                        if is_separator(nc) {
+                            Some(BinaryType::Dec)
+                        } else {
+                            None
+                        }
+                    }
+                },
+                _ => None,
+            },
         }
     }
 }
@@ -223,6 +263,15 @@ pub fn is_reserved_word(word: String) -> bool {
             | "float"
             | "double"
             | "char"
-            | "main"
     )
+}
+
+pub fn is_bool_identifier(word: String) -> bool {
+    matches!(word.as_str(), "true" | "false")
+}
+
+pub fn is_comment(c: char, nc: char) -> bool {
+    let is_single_line_comment: bool = c == '/' && nc == '/';
+    let is_multi_line_comment: bool = c == '/' && nc == '*';
+    is_multi_line_comment | is_single_line_comment
 }
