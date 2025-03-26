@@ -11,6 +11,12 @@ pub struct Token {
     value: String,
 }
 
+fn push(type_name: String, type_value: String, array: &mut Vec<Token>) {
+    array.push(Token {
+        token_type: type_name,
+        value: type_value,
+    });
+}
 pub fn run(filepath: &str) -> Vec<Token> {
     let mut f = Source::new(filepath);
     let mut tokens = Vec::new();
@@ -37,92 +43,50 @@ pub fn run(filepath: &str) -> Vec<Token> {
                 match *t {
                     WordType::Identifier => {
                         if is_reserved_word(token.iter().collect()) {
-                            tokens.push(Token {
-                                token_type: "keyword".to_string(),
-                                value: token.iter().collect(),
-                            });
+                            push("keyword".to_string(), token.iter().collect(), &mut tokens);
                         } else if is_bool_identifier(token.iter().collect()) {
-                            tokens.push(Token {
-                                token_type: "bool".to_string(),
-                                value: token.iter().collect(),
-                            });
+                            push("bool".to_string(), token.iter().collect(), &mut tokens);
                         } else {
-                            tokens.push(Token {
-                                token_type: "identifier".to_string(),
-                                value: token.iter().collect(),
-                            });
+                            push(
+                                "identifier".to_string(),
+                                token.iter().collect(),
+                                &mut tokens,
+                            );
                         }
                     }
                     WordType::Operator => {
-                        tokens.push(Token {
-                            token_type: "operator".to_string(),
-                            value: token.iter().collect(),
-                        });
+                        push("operator".to_string(), token.iter().collect(), &mut tokens);
                     }
                     WordType::Separator => {
-                        tokens.push(Token {
-                            token_type: "separator".to_string(),
-                            value: token.iter().collect(),
-                        });
+                        push("separator".to_string(), token.iter().collect(), &mut tokens);
                     }
                     WordType::Literal(ref t) => match *t {
                         LiteralType::Integer(ref t) => match *t {
                             BinaryType::Hex => {
-                                tokens.push(Token {
-                                    token_type: "hex".to_string(),
-                                    value: token.iter().collect(),
-                                });
+                                push("hex".to_string(), token.iter().collect(), &mut tokens);
                             }
                             BinaryType::Oct => {
-                                tokens.push(Token {
-                                    token_type: "oct".to_string(),
-                                    value: token.iter().collect(),
-                                });
+                                push("oct".to_string(), token.iter().collect(), &mut tokens);
                             }
                             BinaryType::Dec => {
-                                tokens.push(Token {
-                                    token_type: "dec".to_string(),
-                                    value: token.iter().collect(),
-                                });
+                                push("dec".to_string(), token.iter().collect(), &mut tokens);
                             }
                             BinaryType::Unknown => {
-                                tokens.push(Token {
-                                    token_type: "unknown".to_string(),
-                                    value: token.iter().collect(),
-                                });
+                                push("unknown".to_string(), token.iter().collect(), &mut tokens);
                             }
                         },
                         LiteralType::Float => {
-                            tokens.push(Token {
-                                token_type: "float".to_string(),
-                                value: token.iter().collect(),
-                            });
+                            push("float".to_string(), token.iter().collect(), &mut tokens);
                         }
                         LiteralType::Char => {
-                            tokens.push(Token {
-                                token_type: "char".to_string(),
-                                value: token.iter().collect(),
-                            });
+                            push("char".to_string(), token.iter().collect(), &mut tokens);
                         }
                         LiteralType::Unknown => {
-                            tokens.push(Token {
-                                token_type: "unknown".to_string(),
-                                value: token.iter().collect(),
-                            });
+                            push("unknown".to_string(), token.iter().collect(), &mut tokens);
                         }
                     },
                     WordType::String => {
-                        while let Some(c) = f.get_char() {
-                            f.update_pointer(1);
-                            token.push(c);
-                            if c == '"' {
-                                break;
-                            }
-                        }
-                        tokens.push(Token {
-                            token_type: "string".to_string(),
-                            value: token.iter().collect(),
-                        });
+                        push("string".to_string(), token.iter().collect(), &mut tokens);
                     }
                     WordType::Comment => {
                         let comment_type = token[1] == '/';
@@ -150,10 +114,7 @@ pub fn run(filepath: &str) -> Vec<Token> {
                         }
                     }
                     WordType::Unknown => {
-                        tokens.push(Token {
-                            token_type: "unknown".to_string(),
-                            value: token.iter().collect(),
-                        });
+                        push("Unknown".to_string(), token.iter().collect(), &mut tokens);
                     }
                 }
                 token.clear();
@@ -163,12 +124,12 @@ pub fn run(filepath: &str) -> Vec<Token> {
                 let pos = f.position();
                 token.push(c);
                 while let Some(c) = f.get_char() {
-                    token.push(c);
                     f.update_pointer(1);
                     f.update_position(c);
-                    if is_separator(c) {
+                    if is_separator(c) || is_invisible_char(c as u8) {
                         break;
                     }
+                    token.push(c);
                 }
                 let info = format!(
                     "Error->position ({}, {})! {:?}",

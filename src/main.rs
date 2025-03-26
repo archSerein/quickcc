@@ -1,8 +1,8 @@
 use std::env;
 
-use lexer::parse::print_tokens;
 // 词法分析器模块
 mod lexer;
+use lexer::lexer::print_tokens;
 // mod utils;
 
 fn main() {
@@ -15,7 +15,7 @@ fn main() {
         None => panic!("Get filename error!"),
     };
 
-    let lexer_tokens = lexer::parse::run(&filename[..]);
+    let lexer_tokens = lexer::lexer::run(&filename[..]);
     print_tokens(lexer_tokens);
     // let ast_tokens =
     // let ir_tokens

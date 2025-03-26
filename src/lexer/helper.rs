@@ -38,6 +38,7 @@ pub enum State {
 pub fn state_init() -> State {
     State::Init
 }
+
 pub fn transition(c: char, nc: Option<char>, state: State) -> Option<State> {
     match state {
         State::Init => {
@@ -83,7 +84,11 @@ pub fn transition(c: char, nc: Option<char>, state: State) -> Option<State> {
             if is_separator(next_c) || next_c as u8 == SPACE {
                 let next_type = WordType::cal_word_type(c, next_c, current_type);
                 if let Some(next) = next_type {
-                    Some(State::Accepted(next))
+                    if next == WordType::Unknown {
+                        Some(State::Accepted(current_type))
+                    } else {
+                        Some(State::Accepted(next))
+                    }
                 } else {
                     Some(State::Unaccepted)
                 }
@@ -139,7 +144,11 @@ impl LiteralType {
         match state {
             LiteralType::Integer(ref t) => {
                 if let Some(next_state) = BinaryType::cal_binary_type(c, nc, *t) {
-                    Some(LiteralType::Integer(next_state))
+                    if next_state == BinaryType::Unknown {
+                        Some(LiteralType::Unknown)
+                    } else {
+                        Some(LiteralType::Integer(next_state))
+                    }
                 } else if c == '.' {
                     Some(LiteralType::Float)
                 } else {
@@ -183,9 +192,30 @@ impl WordType {
                 _ => None,
             },
             WordType::Literal(ref t) => {
-                LiteralType::cal_literal_type(c, nc, *t).map(WordType::Literal)
+                if let Some(next_type) = LiteralType::cal_literal_type(c, nc, *t) {
+                    if next_type == LiteralType::Unknown {
+                        Some(WordType::Unknown)
+                    } else {
+                        Some(WordType::Literal(next_type))
+                    }
+                } else {
+                    None
+                }
             }
-            WordType::String => Some(WordType::String),
+            WordType::String => {
+                if is_separator(nc) {
+                    match c {
+                        '"' => Some(WordType::String),
+                        _ => None,
+                    }
+                } else {
+                    match c {
+                        '"' => Some(WordType::Unknown),
+                        c if is_valid_char(c) => Some(WordType::String),
+                        _ => None,
+                    }
+                }
+            }
             WordType::Comment => Some(WordType::Comment),
             WordType::Operator => {
                 if is_comment(c, nc) {
@@ -219,13 +249,15 @@ impl BinaryType {
             BinaryType::Dec => {
                 if c.is_numeric() {
                     Some(BinaryType::Dec)
+                } else if is_invisible_char(c as u8) {
+                    Some(BinaryType::Unknown)
                 } else {
                     None
                 }
             }
             BinaryType::Unknown => match c {
                 '1'..='9' => {
-                    if nc.is_numeric() || is_separator(nc) {
+                    if nc.is_numeric() || is_separator(nc) || is_invisible_char(nc as u8) {
                         Some(BinaryType::Dec)
                     } else if nc == '.' {
                         Some(BinaryType::Unknown)
@@ -235,7 +267,7 @@ impl BinaryType {
                 }
                 '0' => match nc {
                     'X' | 'x' => Some(BinaryType::Hex),
-                    '0'..'7' => Some(BinaryType::Oct),
+                    '0'..'8' => Some(BinaryType::Oct),
                     _ => {
                         if is_separator(nc) {
                             Some(BinaryType::Dec)
@@ -263,6 +295,7 @@ pub fn is_reserved_word(word: String) -> bool {
             | "float"
             | "double"
             | "char"
+            | "String"
     )
 }
 
