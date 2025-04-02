@@ -2,7 +2,12 @@ use std::env;
 
 // 词法分析器模块
 mod lexer;
-use lexer::lexer::print_tokens;
+mod parser;
+mod utils;
+use parser::parse::{Node, parse};
+use utils::helper::print_ast;
+use utils::helper::print_tokens;
+
 // mod utils;
 
 fn main() {
@@ -16,8 +21,9 @@ fn main() {
     };
 
     let lexer_tokens = lexer::lexer::run(&filename[..]);
-    print_tokens(lexer_tokens);
-    // let ast_tokens =
+    print_tokens(&lexer_tokens);
+    let ast_tokens = parse(&lexer_tokens);
+    print_ast(ast_tokens);
     // let ir_tokens
     // let asm_tokens
     // let obj_tokens
