@@ -296,6 +296,7 @@ pub fn is_reserved_word(word: String) -> bool {
             | "double"
             | "char"
             | "String"
+            | "uint"
     )
 }
 

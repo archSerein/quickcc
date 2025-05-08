@@ -1,13 +1,16 @@
-use crate::Node;
 use crate::lexer::lexer::*;
+use crate::parser::parse::CSTNode;
 
-pub fn print_ast(root: Node) {
-    todo!()
+pub fn print_cst(node: &Vec<CSTNode>) {
+    println!("{:?}", node.len());
+    for val in node {
+        println!("{:?}", val);
+    }
 }
 
 pub fn print_tokens(tokens: &Vec<Token>) {
     for token in tokens {
-        println!("{:?} {:?}", token.token_type, token.value);
+        println!("{:?} {:?}", token.types, token.value);
     }
 }
 

@@ -4,8 +4,8 @@ use std::env;
 mod lexer;
 mod parser;
 mod utils;
-use parser::parse::{Node, parse};
-use utils::helper::print_ast;
+use parser::parse::parse;
+use utils::helper::print_cst;
 use utils::helper::print_tokens;
 
 // mod utils;
@@ -22,10 +22,8 @@ fn main() {
 
     let lexer_tokens = lexer::lexer::run(&filename[..]);
     print_tokens(&lexer_tokens);
-    let ast_tokens = parse(&lexer_tokens);
-    print_ast(ast_tokens);
+    let cst_tokens = parse(&lexer_tokens);
+    print_cst(&cst_tokens);
     // let ir_tokens
     // let asm_tokens
-    // let obj_tokens
-    // let elf_tokens
 }

@@ -7,15 +7,17 @@ use super::helper::*;
 use std::panic;
 use std::vec::Vec;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token {
-    pub token_type: PhraseType,
+    pub pos: usize,
+    pub types: PhraseType,
     pub value: String,
 }
 
-fn push(types: PhraseType, token_value: String, array: &mut Vec<Token>) {
+fn push(pos_cow: usize, types: PhraseType, token_value: String, array: &mut Vec<Token>) {
     array.push(Token {
-        token_type: types,
+        pos: pos_cow,
+        types,
         value: token_value,
     });
 }
@@ -42,49 +44,115 @@ pub fn run(filepath: &str) -> Vec<Token> {
                     token.push(c);
                 }
                 f.update_position(c);
+                let pos_cow = f.position().0 as usize;
                 match *t {
                     WordType::Identifier => {
                         if is_reserved_word(token.iter().collect()) {
-                            push(PhraseType::Keyword, token.iter().collect(), &mut tokens);
+                            push(
+                                pos_cow,
+                                PhraseType::Keyword,
+                                token.iter().collect(),
+                                &mut tokens,
+                            );
                         } else if is_bool_identifier(token.iter().collect()) {
-                            push(PhraseType::Bool, token.iter().collect(), &mut tokens);
+                            push(
+                                pos_cow,
+                                PhraseType::Bool,
+                                token.iter().collect(),
+                                &mut tokens,
+                            );
                         } else {
-                            push(PhraseType::Identifier, token.iter().collect(), &mut tokens);
+                            push(
+                                pos_cow,
+                                PhraseType::Identifier,
+                                token.iter().collect(),
+                                &mut tokens,
+                            );
                         }
                     }
                     WordType::Operator => {
-                        push(PhraseType::Operator, token.iter().collect(), &mut tokens);
+                        push(
+                            pos_cow,
+                            PhraseType::Operator,
+                            token.iter().collect(),
+                            &mut tokens,
+                        );
                     }
                     WordType::Separator => {
-                        push(PhraseType::Separator, token.iter().collect(), &mut tokens);
+                        push(
+                            pos_cow,
+                            PhraseType::Separator,
+                            token.iter().collect(),
+                            &mut tokens,
+                        );
                     }
                     WordType::Literal(ref t) => match *t {
                         LiteralType::Integer(ref t) => match *t {
                             BinaryType::Hex => {
-                                push(PhraseType::Hex, token.iter().collect(), &mut tokens);
+                                push(
+                                    pos_cow,
+                                    PhraseType::Hex,
+                                    token.iter().collect(),
+                                    &mut tokens,
+                                );
                             }
                             BinaryType::Oct => {
-                                push(PhraseType::Oct, token.iter().collect(), &mut tokens);
+                                push(
+                                    pos_cow,
+                                    PhraseType::Oct,
+                                    token.iter().collect(),
+                                    &mut tokens,
+                                );
                             }
                             BinaryType::Dec => {
-                                push(PhraseType::Dec, token.iter().collect(), &mut tokens);
+                                push(
+                                    pos_cow,
+                                    PhraseType::Dec,
+                                    token.iter().collect(),
+                                    &mut tokens,
+                                );
                             }
                             BinaryType::Unknown => {
-                                push(PhraseType::Unknown, token.iter().collect(), &mut tokens);
+                                push(
+                                    pos_cow,
+                                    PhraseType::Unknown,
+                                    token.iter().collect(),
+                                    &mut tokens,
+                                );
                             }
                         },
                         LiteralType::Float => {
-                            push(PhraseType::Float, token.iter().collect(), &mut tokens);
+                            push(
+                                pos_cow,
+                                PhraseType::Float,
+                                token.iter().collect(),
+                                &mut tokens,
+                            );
                         }
                         LiteralType::Char => {
-                            push(PhraseType::Char, token.iter().collect(), &mut tokens);
+                            push(
+                                pos_cow,
+                                PhraseType::Char,
+                                token.iter().collect(),
+                                &mut tokens,
+                            );
                         }
                         LiteralType::Unknown => {
-                            push(PhraseType::Unknown, token.iter().collect(), &mut tokens);
+                            push(
+                                pos_cow,
+                                PhraseType::Unknown,
+                                token.iter().collect(),
+                                &mut tokens,
+                            );
                         }
                     },
                     WordType::String => {
-                        push(PhraseType::String, token.iter().collect(), &mut tokens);
+                        push(
+                            pos_cow,
+                            PhraseType::String,
+                            token.iter().collect(),
+                            &mut tokens,
+                        );
                     }
                     WordType::Comment => {
                         let comment_type = token[1] == '/';
@@ -112,7 +180,12 @@ pub fn run(filepath: &str) -> Vec<Token> {
                         }
                     }
                     WordType::Unknown => {
-                        push(PhraseType::Unknown, token.iter().collect(), &mut tokens);
+                        push(
+                            pos_cow,
+                            PhraseType::Unknown,
+                            token.iter().collect(),
+                            &mut tokens,
+                        );
                     }
                 }
                 token.clear();
