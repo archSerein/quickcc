@@ -4,7 +4,8 @@ use crate::parser::parse::CSTNode;
 pub fn print_cst(node: &Vec<CSTNode>) {
     println!("{:?}", node.len());
     for val in node {
-        println!("{:?}", val);
+        val.print_tree();
+        // println!("{:?}", val);
     }
 }
 

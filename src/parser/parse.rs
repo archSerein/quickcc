@@ -1,9 +1,7 @@
 use super::helper::error_handler;
 use super::types::{Action, NonTerm, State};
 use crate::lexer::lexer::Token;
-use crate::parser::helper::{is_control_keyword, is_type_keyword, look_forward};
 use crate::utils::types::PhraseType;
-use std::panic;
 use std::vec::Vec;
 
 #[derive(Debug)]
