@@ -69,7 +69,7 @@ pub fn term_index(tok: &Token) -> usize {
         Keyword if tok.value == "while" => 28,
         Separator if tok.value == "{" => 29,
         Operator if tok.value == "||" => 30,
-        Separator if tok.value == "32" => 31,
+        Separator if tok.value == "}" => 31,
         _ => 32, // end of file
     }
 }

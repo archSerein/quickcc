@@ -8,6 +8,15 @@ use std::vec::Vec;
 
 #[derive(Debug)]
 pub enum CSTNode {
+    Assign {
+        logical_or: Box<CSTNode>,
+        assign_prime: Option<Box<CSTNode>>,
+    },
+    AssignPrime {
+        op: String,
+        logical_or: Box<CSTNode>,
+        assign_prime: Option<Box<CSTNode>>,
+    },
     UnMatchedStmt {
         while_stmt: Option<String>,
         if_stmt: Option<String>,
@@ -47,7 +56,7 @@ pub enum CSTNode {
     },
     StmtList {
         stmt: Box<CSTNode>,
-        stmt_list: Box<CSTNode>,
+        stmt_list: Option<Box<CSTNode>>,
     },
     Stmt {
         unmatched_stmt: Option<Box<CSTNode>>,
@@ -105,7 +114,7 @@ pub enum CSTNode {
     },
     ExtDefList {
         ext_def: Box<CSTNode>,
-        ext_def_list: Box<CSTNode>,
+        ext_def_list: Option<Box<CSTNode>>,
     },
     ExtDef {
         spec: Box<CSTNode>,
@@ -121,7 +130,7 @@ pub enum CSTNode {
     },
     DefList {
         def: Box<CSTNode>,
-        def_list: Box<CSTNode>,
+        def_list: Option<Box<CSTNode>>,
     },
     Def {
         spec: Box<CSTNode>,
@@ -140,7 +149,7 @@ pub enum CSTNode {
     },
     CompSt {
         lc: String,
-        def_list: Box<CSTNode>,
+        def_list: Option<Box<CSTNode>>,
         stmt_list: Box<CSTNode>,
         rc: String,
     },
@@ -215,11 +224,20 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
         };
         let st = state.last().unwrap().to_index();
         let action = &super::constant::ACTION[st][col];
-        let token = &tokens[index];
+        let token = tokens.get(index).cloned().unwrap_or(Token {
+            pos: 0,
+            types: PhraseType::Separator,
+            value: String::from("$"),
+        });
         match action {
             Action::Shift(ns) => {
                 let symbol = token.clone();
-                println!("{:?} {:?} {:?}", state.last().unwrap(), *ns, look);
+                // println!(
+                //     "shift push {:?} {:?} {:?}",
+                //     state.last().unwrap(),
+                //     *ns,
+                //     look
+                // );
                 state.push(*ns);
                 sym.push(symbol);
                 index += 1;
@@ -263,7 +281,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         let def_list = cst.pop().unwrap();
                         let node = CSTNode::CompSt {
                             lc: lc.value,
-                            def_list: Box::new(def_list),
+                            def_list: Some(Box::new(def_list)),
                             stmt_list: Box::new(stmt_list),
                             rc: rc.value,
                         };
@@ -271,6 +289,19 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         (NonTerm::CompSt, 4)
                     }
                     5 => {
+                        let rc = sym.pop().unwrap();
+                        let lc = sym.pop().unwrap();
+                        let stmt_list = cst.pop().unwrap();
+                        let node = CSTNode::CompSt {
+                            lc: lc.value,
+                            def_list: None,
+                            stmt_list: Box::new(stmt_list),
+                            rc: rc.value,
+                        };
+                        cst.push(node);
+                        (NonTerm::CompSt, 3)
+                    }
+                    6 => {
                         let var_dec = cst.pop().unwrap();
                         let node = CSTNode::Dec {
                             var_dec: Box::new(var_dec),
@@ -280,7 +311,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Dec, 1)
                     }
-                    6 => {
+                    7 => {
                         let expr = cst.pop().unwrap();
                         let var_dec = cst.pop().unwrap();
                         let op = sym.pop().unwrap();
@@ -292,7 +323,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Dec, 3)
                     }
-                    7 => {
+                    8 => {
                         let dec = cst.pop().unwrap();
                         let node = CSTNode::DecList {
                             dec: Box::new(dec),
@@ -302,7 +333,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::DecList, 1)
                     }
-                    8 => {
+                    9 => {
                         let dec_list = cst.pop().unwrap();
                         let dec = cst.pop().unwrap();
                         let sepa = sym.pop().unwrap();
@@ -314,7 +345,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::DecList, 3)
                     }
-                    9 => {
+                    10 => {
                         let sepa = sym.pop().unwrap();
                         let dec_list = cst.pop().unwrap();
                         let spec = cst.pop().unwrap();
@@ -326,17 +357,26 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Def, 3)
                     }
-                    10 => {
+                    11 => {
                         let def_list = cst.pop().unwrap();
                         let def = cst.pop().unwrap();
                         let node = CSTNode::DefList {
                             def: Box::new(def),
-                            def_list: Box::new(def_list),
+                            def_list: Some(Box::new(def_list)),
                         };
                         cst.push(node);
                         (NonTerm::DefList, 2)
                     }
-                    11 => {
+                    12 => {
+                        let def = cst.pop().unwrap();
+                        let node = CSTNode::DefList {
+                            def: Box::new(def),
+                            def_list: None,
+                        };
+                        cst.push(node);
+                        (NonTerm::DefList, 1)
+                    }
+                    13 => {
                         let var_dec = cst.pop().unwrap();
                         let node = CSTNode::ExtDecList {
                             var_dec: Box::new(var_dec),
@@ -346,7 +386,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::ExtDecList, 1)
                     }
-                    12 => {
+                    14 => {
                         let ext_dec_list = cst.pop().unwrap();
                         let var_dec = cst.pop().unwrap();
                         let sepa = sym.pop().unwrap();
@@ -358,7 +398,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::ExtDecList, 3)
                     }
-                    13 => {
+                    15 => {
                         let ext_dec_list = cst.pop().unwrap();
                         let spec = cst.pop().unwrap();
                         let sepa = sym.pop().unwrap();
@@ -372,7 +412,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::ExtDef, 3)
                     }
-                    14 => {
+                    16 => {
                         let spec = cst.pop().unwrap();
                         let sepa = sym.pop().unwrap();
                         let node = CSTNode::ExtDef {
@@ -385,7 +425,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::ExtDef, 2)
                     }
-                    15 => {
+                    17 => {
                         let compst = cst.pop().unwrap();
                         let fun_dec = cst.pop().unwrap();
                         let spec = cst.pop().unwrap();
@@ -399,17 +439,26 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::ExtDef, 3)
                     }
-                    16 => {
+                    18 => {
                         let ext_def_list = cst.pop().unwrap();
                         let ext_def = cst.pop().unwrap();
                         let node = CSTNode::ExtDefList {
                             ext_def: Box::new(ext_def),
-                            ext_def_list: Box::new(ext_def_list),
+                            ext_def_list: Some(Box::new(ext_def_list)),
                         };
                         cst.push(node);
                         (NonTerm::ExtDefList, 2)
                     }
-                    17 => {
+                    19 => {
+                        let ext_def = cst.pop().unwrap();
+                        let node = CSTNode::ExtDefList {
+                            ext_def: Box::new(ext_def),
+                            ext_def_list: None,
+                        };
+                        cst.push(node);
+                        (NonTerm::ExtDefList, 1)
+                    }
+                    20 => {
                         let arguments = cst.pop().unwrap();
                         let rp = sym.pop().unwrap();
                         let lp = sym.pop().unwrap();
@@ -423,7 +472,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::FunCall, 4)
                     }
-                    18 => {
+                    21 => {
                         let rp = sym.pop().unwrap();
                         let lp = sym.pop().unwrap();
                         let id = sym.pop().unwrap();
@@ -436,7 +485,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::FunCall, 3)
                     }
-                    19 => {
+                    22 => {
                         let var_list = cst.pop().unwrap();
                         let rp = sym.pop().unwrap();
                         let lp = sym.pop().unwrap();
@@ -450,7 +499,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::FunDec, 4)
                     }
-                    20 => {
+                    23 => {
                         let rp = sym.pop().unwrap();
                         let lp = sym.pop().unwrap();
                         let id = sym.pop().unwrap();
@@ -463,7 +512,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::FunDec, 3)
                     }
-                    21 => {
+                    24 => {
                         let normal_stmt = cst.pop().unwrap();
                         let node = CSTNode::MatchedStmt {
                             normal_stmt: Some(Box::new(normal_stmt)),
@@ -479,7 +528,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::MatchedStmt, 1)
                     }
-                    22 => {
+                    25 => {
                         let rp = sym.pop().unwrap();
                         let lp = sym.pop().unwrap();
                         let while_stmt = sym.pop().unwrap();
@@ -499,7 +548,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::MatchedStmt, 5)
                     }
-                    23 => {
+                    26 => {
                         let else_stmt = sym.pop().unwrap();
                         let rp = sym.pop().unwrap();
                         let lp = sym.pop().unwrap();
@@ -521,7 +570,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::MatchedStmt, 7)
                     }
-                    24 => {
+                    27 => {
                         let sepa = sym.pop().unwrap();
                         let expression = cst.pop().unwrap();
                         let node = CSTNode::NormalStmt {
@@ -533,7 +582,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::NormalStmt, 2)
                     }
-                    25 => {
+                    28 => {
                         let compst = cst.pop().unwrap();
                         let node = CSTNode::NormalStmt {
                             compst: Some(Box::new(compst)),
@@ -544,7 +593,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::NormalStmt, 1)
                     }
-                    26 => {
+                    29 => {
                         let sepa = sym.pop().unwrap();
                         let return_stmt = sym.pop().unwrap();
                         let expression = cst.pop().unwrap();
@@ -557,7 +606,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::NormalStmt, 3)
                     }
-                    27 => {
+                    30 => {
                         let var_dec = cst.pop().unwrap();
                         let spec = cst.pop().unwrap();
                         let node = CSTNode::ParaDec {
@@ -567,13 +616,13 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::ParaDec, 2)
                     }
-                    28 => {
+                    31 => {
                         let ext_def_list = cst.pop().unwrap();
                         let node = CSTNode::Program(Box::new(ext_def_list));
                         cst.push(node);
                         (NonTerm::Program, 1)
                     }
-                    29 => {
+                    32 => {
                         let specifier_type = sym.pop().unwrap();
                         let node = CSTNode::Specifier {
                             specifier_type: Some(specifier_type.value),
@@ -582,7 +631,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Specifier, 1)
                     }
-                    30 => {
+                    33 => {
                         let struct_specifier = cst.pop().unwrap();
                         let node = CSTNode::Specifier {
                             struct_specifier: Some(Box::new(struct_specifier)),
@@ -591,7 +640,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Specifier, 1)
                     }
-                    31 => {
+                    34 => {
                         let matched_stmt = cst.pop().unwrap();
                         let node = CSTNode::Stmt {
                             matched_stmt: Some(Box::new(matched_stmt)),
@@ -600,7 +649,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Stmt, 1)
                     }
-                    32 => {
+                    35 => {
                         let unmatched_stmt = cst.pop().unwrap();
                         let node = CSTNode::Stmt {
                             unmatched_stmt: Some(Box::new(unmatched_stmt)),
@@ -609,17 +658,26 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Stmt, 1)
                     }
-                    33 => {
+                    36 => {
                         let stmt_list = cst.pop().unwrap();
                         let stmt = cst.pop().unwrap();
                         let node = CSTNode::StmtList {
                             stmt: Box::new(stmt),
-                            stmt_list: Box::new(stmt_list),
+                            stmt_list: Some(Box::new(stmt_list)),
                         };
                         cst.push(node);
                         (NonTerm::StmtList, 2)
                     }
-                    34 => {
+                    37 => {
+                        let stmt = cst.pop().unwrap();
+                        let node = CSTNode::StmtList {
+                            stmt: Box::new(stmt),
+                            stmt_list: None,
+                        };
+                        cst.push(node);
+                        (NonTerm::StmtList, 1)
+                    }
+                    38 => {
                         let rc = sym.pop().unwrap();
                         let lc = sym.pop().unwrap();
                         let id = sym.pop().unwrap();
@@ -633,9 +691,9 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                             def_list: Some(Box::new(def_list)),
                         };
                         cst.push(node);
-                        (NonTerm::StructSpecifier, 4)
+                        (NonTerm::StructSpecifier, 5)
                     }
-                    35 => {
+                    39 => {
                         let rc = sym.pop().unwrap();
                         let lc = sym.pop().unwrap();
                         let struct_type = sym.pop().unwrap();
@@ -650,7 +708,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::StructSpecifier, 4)
                     }
-                    36 => {
+                    40 => {
                         let id = sym.pop().unwrap();
                         let struct_type = sym.pop().unwrap();
                         let node = CSTNode::StructSpecifier {
@@ -663,7 +721,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::StructSpecifier, 2)
                     }
-                    37 => {
+                    41 => {
                         let rp = sym.pop().unwrap();
                         let lp = sym.pop().unwrap();
                         let if_stmt = sym.pop().unwrap();
@@ -683,7 +741,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::UnMatchedStmt, 5)
                     }
-                    38 => {
+                    42 => {
                         let else_stmt = sym.pop().unwrap();
                         let rp = sym.pop().unwrap();
                         let lp = sym.pop().unwrap();
@@ -705,7 +763,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::UnMatchedStmt, 7)
                     }
-                    39 => {
+                    43 => {
                         let rp = sym.pop().unwrap();
                         let lp = sym.pop().unwrap();
                         let while_stmt = sym.pop().unwrap();
@@ -725,7 +783,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::UnMatchedStmt, 5)
                     }
-                    40 => {
+                    44 => {
                         let id = sym.pop().unwrap();
                         let node = CSTNode::VarDec {
                             id: Some(id.value),
@@ -737,7 +795,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::VarDec, 1)
                     }
-                    41 => {
+                    45 => {
                         let rt = sym.pop().unwrap();
                         let literal = sym.pop().unwrap();
                         let lt = sym.pop().unwrap();
@@ -752,7 +810,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::VarDec, 4)
                     }
-                    42 => {
+                    46 => {
                         let var_list = cst.pop().unwrap();
                         let para_dec = cst.pop().unwrap();
                         let sepa = sym.pop().unwrap();
@@ -762,9 +820,9 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                             var_list: Some(Box::new(var_list)),
                         };
                         cst.push(node);
-                        (NonTerm::VarList, 1)
+                        (NonTerm::VarList, 3)
                     }
-                    43 => {
+                    47 => {
                         let para_dec = cst.pop().unwrap();
                         let node = CSTNode::VarList {
                             para_dec: Box::new(para_dec),
@@ -774,7 +832,49 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::VarList, 1)
                     }
-                    44 => {
+                    48 => {
+                        let logical_or = cst.pop().unwrap();
+                        let node = CSTNode::Assign {
+                            logical_or: Box::new(logical_or),
+                            assign_prime: None,
+                        };
+                        cst.push(node);
+                        (NonTerm::Assign, 1)
+                    }
+                    49 => {
+                        let assign_prime = cst.pop().unwrap();
+                        let logical_or = cst.pop().unwrap();
+                        let node = CSTNode::Assign {
+                            logical_or: Box::new(logical_or),
+                            assign_prime: Some(Box::new(assign_prime)),
+                        };
+                        cst.push(node);
+                        (NonTerm::Assign, 2)
+                    }
+                    50 => {
+                        let assign_op = sym.pop().unwrap();
+                        let assign_prime = cst.pop().unwrap();
+                        let logical_or = cst.pop().unwrap();
+                        let node = CSTNode::AssignPrime {
+                            op: assign_op.value,
+                            logical_or: Box::new(logical_or),
+                            assign_prime: Some(Box::new(assign_prime)),
+                        };
+                        cst.push(node);
+                        (NonTerm::AssignPrime, 3)
+                    }
+                    51 => {
+                        let assign_op = sym.pop().unwrap();
+                        let logical_or = cst.pop().unwrap();
+                        let node = CSTNode::AssignPrime {
+                            op: assign_op.value,
+                            logical_or: Box::new(logical_or),
+                            assign_prime: None,
+                        };
+                        cst.push(node);
+                        (NonTerm::AssignPrime, 2)
+                    }
+                    52 => {
                         let comparison_prime = cst.pop().unwrap();
                         let term = cst.pop().unwrap();
                         let node = CSTNode::Comparison {
@@ -784,7 +884,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Comparison, 2)
                     }
-                    45 => {
+                    53 => {
                         let term = cst.pop().unwrap();
                         let node = CSTNode::Comparison {
                             term: Box::new(term),
@@ -793,7 +893,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Comparison, 1)
                     }
-                    46..50 => {
+                    54..58 => {
                         let op = sym.pop().unwrap();
                         let comparison_prime = cst.pop().unwrap();
                         let term = cst.pop().unwrap();
@@ -805,7 +905,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::ComparisonPrime, 3)
                     }
-                    50..54 => {
+                    58..62 => {
                         let op = sym.pop().unwrap();
                         let term = cst.pop().unwrap();
                         let node = CSTNode::ComparisonPrime {
@@ -816,7 +916,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::ComparisonPrime, 2)
                     }
-                    54 => {
+                    62 => {
                         let equality_prime = cst.pop().unwrap();
                         let comparison = cst.pop().unwrap();
                         let node = CSTNode::Equality {
@@ -826,7 +926,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Equality, 2)
                     }
-                    55 => {
+                    63 => {
                         let comparison = cst.pop().unwrap();
                         let node = CSTNode::Equality {
                             comparison: Box::new(comparison),
@@ -835,7 +935,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Equality, 1)
                     }
-                    56 | 57 => {
+                    64 | 65 => {
                         let op = sym.pop().unwrap();
                         let equality_prime = cst.pop().unwrap();
                         let comparison = cst.pop().unwrap();
@@ -847,7 +947,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::EqualityPrime, 3)
                     }
-                    58 | 59 => {
+                    66 | 67 => {
                         let op = sym.pop().unwrap();
                         let comparison = cst.pop().unwrap();
                         let node = CSTNode::EqualityPrime {
@@ -858,13 +958,13 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::EqualityPrime, 2)
                     }
-                    60 => {
-                        let logical_or = cst.pop().unwrap();
-                        let node = CSTNode::Expression(Box::new(logical_or));
+                    68 => {
+                        let assign = cst.pop().unwrap();
+                        let node = CSTNode::Expression(Box::new(assign));
                         cst.push(node);
                         (NonTerm::Expression, 1)
                     }
-                    61 => {
+                    69 => {
                         let factor_prime = cst.pop().unwrap();
                         let unary = cst.pop().unwrap();
                         let node = CSTNode::Factor {
@@ -874,7 +974,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Factor, 2)
                     }
-                    62 => {
+                    70 => {
                         let unary = cst.pop().unwrap();
                         let node = CSTNode::Factor {
                             unary: Box::new(unary),
@@ -883,7 +983,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Factor, 1)
                     }
-                    63 | 64 => {
+                    71 | 72 => {
                         let op = sym.pop().unwrap();
                         let factor_prime = cst.pop().unwrap();
                         let unary = cst.pop().unwrap();
@@ -895,7 +995,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::FactorPrime, 3)
                     }
-                    65 | 66 => {
+                    73 | 74 => {
                         let op = sym.pop().unwrap();
                         let unary = cst.pop().unwrap();
                         let node = CSTNode::FactorPrime {
@@ -906,7 +1006,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::FactorPrime, 2)
                     }
-                    67 => {
+                    75 => {
                         let logical_and_prime = cst.pop().unwrap();
                         let equality = cst.pop().unwrap();
                         let node = CSTNode::LogicalAnd {
@@ -916,7 +1016,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::LogicalAnd, 2)
                     }
-                    68 => {
+                    76 => {
                         let equality = cst.pop().unwrap();
                         let node = CSTNode::LogicalAnd {
                             equality: Box::new(equality),
@@ -925,7 +1025,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::LogicalAnd, 1)
                     }
-                    69 => {
+                    77 => {
                         let op = sym.pop().unwrap();
                         let logical_and_prime = cst.pop().unwrap();
                         let equality = cst.pop().unwrap();
@@ -937,7 +1037,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::LogicalAndPrime, 3)
                     }
-                    70 => {
+                    78 => {
                         let op = sym.pop().unwrap();
                         let equality = cst.pop().unwrap();
                         let node = CSTNode::LogicalAndPrime {
@@ -948,7 +1048,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::LogicalAndPrime, 2)
                     }
-                    71 => {
+                    79 => {
                         let logical_or_prime = cst.pop().unwrap();
                         let logical_and = cst.pop().unwrap();
                         let node = CSTNode::LogicalOr {
@@ -958,7 +1058,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::LogicalOr, 2)
                     }
-                    72 => {
+                    80 => {
                         let logical_and = cst.pop().unwrap();
                         let node = CSTNode::LogicalOr {
                             logical_and: Box::new(logical_and),
@@ -967,7 +1067,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::LogicalOr, 1)
                     }
-                    73 => {
+                    81 => {
                         let op = sym.pop().unwrap();
                         let logical_or_prime = cst.pop().unwrap();
                         let logical_and = cst.pop().unwrap();
@@ -979,7 +1079,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::LogicalOrPrime, 3)
                     }
-                    74 => {
+                    82 => {
                         let op = sym.pop().unwrap();
                         let logical_and = cst.pop().unwrap();
                         let node = CSTNode::LogicalOrPrime {
@@ -990,7 +1090,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::LogicalOrPrime, 2)
                     }
-                    75..79 => {
+                    83..87 => {
                         let symbol = sym.pop().unwrap();
                         let node = CSTNode::Primary {
                             symbol: Some(symbol.value),
@@ -1002,7 +1102,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Primary, 1)
                     }
-                    79 => {
+                    87 => {
                         let rp = sym.pop().unwrap();
                         let lp = sym.pop().unwrap();
                         let expression = cst.pop().unwrap();
@@ -1016,7 +1116,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Primary, 3)
                     }
-                    80 => {
+                    88 => {
                         let fun_call = cst.pop().unwrap();
                         let node = CSTNode::Primary {
                             symbol: None,
@@ -1028,7 +1128,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Primary, 1)
                     }
-                    81 => {
+                    89 => {
                         let term_prime = cst.pop().unwrap();
                         let factor = cst.pop().unwrap();
                         let node = CSTNode::Term {
@@ -1038,7 +1138,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Term, 2)
                     }
-                    82 => {
+                    90 => {
                         let factor = cst.pop().unwrap();
                         let node = CSTNode::Term {
                             factor: Box::new(factor),
@@ -1047,7 +1147,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Term, 1)
                     }
-                    83 | 84 => {
+                    91 | 92 => {
                         let term_prime = cst.pop().unwrap();
                         let factor = cst.pop().unwrap();
                         let op = sym.pop().unwrap();
@@ -1059,7 +1159,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::TermPrime, 3)
                     }
-                    85 | 86 => {
+                    93 | 94 => {
                         let factor = cst.pop().unwrap();
                         let op = sym.pop().unwrap();
                         let node = CSTNode::TermPrime {
@@ -1070,7 +1170,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::TermPrime, 2)
                     }
-                    88 => {
+                    96 => {
                         let primary = cst.pop().unwrap();
                         let node = CSTNode::Unary {
                             op: None,
@@ -1079,7 +1179,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                         cst.push(node);
                         (NonTerm::Unary, 1)
                     }
-                    87 | 89 => {
+                    95 | 97 => {
                         let op = sym.pop().unwrap();
                         let unary = cst.pop().unwrap();
                         let node = CSTNode::Unary {
@@ -1092,12 +1192,14 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                     _ => unreachable!(),
                 };
                 for _ in 0..rhs_len {
+                    // let last_state = state.last().unwrap();
+                    // println!("pop state {:?}", last_state);
                     state.pop();
                 }
                 // 根据 GOTO 表推进
                 let st2 = state.last().unwrap().to_index();
                 if let Some(tgt) = &super::constant::GOTO[st2][lhs.to_index()] {
-                    println!("{:?} {:?} {:?}", st2, *tgt, look);
+                    // println!("reduce push {:?} {:?} {:?}", st2, *tgt, look);
                     state.push(*tgt);
                 }
             }
