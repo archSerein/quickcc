@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ASTNode {
     // —— 程序、外部定义 ——
     Program {
@@ -38,9 +38,9 @@ pub enum ASTNode {
 
     // —— 表达式 ——
     BinaryOp {
-        op: String,
+        op: Option<String>,
         lhs: Box<ASTNode>,
-        rhs: Box<ASTNode>,
+        rhs: Option<Box<ASTNode>>,
     },
     UnaryOp {
         op: String,

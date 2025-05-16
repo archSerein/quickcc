@@ -20,3 +20,7 @@ pub fn print_err_info(err_info: Vec<String>) {
         println!("{:?}", info);
     }
 }
+
+pub fn symbol_is_literal(symbol: &String) -> bool {
+    symbol.as_str().parse::<i32>().is_ok() || symbol.as_str().parse::<f64>().is_ok()
+}
