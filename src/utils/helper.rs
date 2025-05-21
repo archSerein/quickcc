@@ -1,11 +1,21 @@
+use crate::ast::types::ASTNode;
 use crate::lexer::lexer::*;
 use crate::parser::parse::CSTNode;
+
+use super::types::PhraseType;
 
 pub fn print_cst(node: &Vec<CSTNode>) {
     println!("{:?}", node.len());
     for val in node {
         val.print_tree();
         // println!("{:?}", val);
+    }
+}
+pub fn print_ast(node: &Vec<ASTNode>) {
+    println!("{:?}", node.len());
+    for val in node {
+        // val.print_tree();
+        println!("{}", val);
     }
 }
 
@@ -21,6 +31,16 @@ pub fn print_err_info(err_info: Vec<String>) {
     }
 }
 
-pub fn symbol_is_literal(symbol: &String) -> bool {
-    symbol.as_str().parse::<i32>().is_ok() || symbol.as_str().parse::<f64>().is_ok()
+pub fn symbol_is_literal(symbol: &PhraseType) -> bool {
+    match symbol {
+        PhraseType::Identifier => false,
+        PhraseType::Bool
+        | PhraseType::String
+        | PhraseType::Hex
+        | PhraseType::Oct
+        | PhraseType::Dec
+        | PhraseType::Float
+        | PhraseType::Char => true,
+        _ => unreachable!(),
+    }
 }

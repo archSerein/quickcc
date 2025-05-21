@@ -17,7 +17,7 @@ pub fn error_handler(state: &Vec<State>, look: &Token) {
     println!(
         "current state {:?} unexpected {:?}",
         state.last().unwrap(),
-        look.value
+        look
     );
 }
 

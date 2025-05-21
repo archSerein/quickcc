@@ -7,7 +7,7 @@ use super::helper::*;
 use std::panic;
 use std::vec::Vec;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub pos: usize,
     pub types: PhraseType,

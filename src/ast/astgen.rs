@@ -1,4 +1,10 @@
-use super::types::ASTNode;
+use super::{
+    helper::{
+        build_symbol_table, check_types, get_current_scope_num, print_symbol_table,
+        update_current_scope_num,
+    },
+    types::{ASTNode, StructType, Type, VarDec},
+};
 use crate::{parser::parse::CSTNode, utils::helper::symbol_is_literal};
 use std::vec;
 
@@ -6,8 +12,9 @@ pub fn ast_gen(cst: &Vec<CSTNode>) -> Vec<ASTNode> {
     let mut ast: Vec<ASTNode> = vec![];
     for node in cst {
         let ast_node = ASTNode::from_cst(node);
-        ast.push(ast_node);
+        ast.push(ast_node.optimal());
     }
+    print_symbol_table();
     ast
 }
 
@@ -21,89 +28,134 @@ impl ASTNode {
             }
             CSTNode::ExtDef {
                 spec,
-                fun_dec: Some(fun),
-                compst: Some(body),
-                ext_dec_list: Some(list),
+                fun_dec,
+                compst,
+                ext_dec_list,
                 ..
                 // sepa, 分隔符号是否需要记录到 ast 中
             } => {
-                let (ret_type, _) = extract_spec(spec);
-                let (name, params) = extract_fundec(fun);
-                let body_block = ASTNode::from_cst(body);
-                let mut items = Vec::new();
-                collect_extdecs(list, &mut items);
-                ASTNode::FuncDef {
-                    name,
-                    params,
-                    ret_type,
-                    body: Box::new(body_block),
+                let ret_type = extract_spec(spec);
+                match (fun_dec, compst, ext_dec_list) {
+                    (Some(func), Some(compst), None) => {
+                        let (name, params) = extract_fundec(func);
+                        let var_info = VarDec {
+                            var_type: ret_type.clone(),
+                            var_name: name.clone(),
+                            init: None
+                        };
+                        build_symbol_table(&var_info, get_current_scope_num(), Some(params.clone()));
+                        let body_block = ASTNode::from_cst(compst);
+                        ASTNode::FuncDef {
+                            name,
+                            params,
+                            ret_type,
+                            body: Box::new(body_block),
+                        }
+                    }
+                    (None, None, Some(list)) => {
+                        let mut items = Vec::new();
+                        collect_extdecs(ret_type.clone(),list, &mut items);
+                        ASTNode::VarDecl(items)
+                    }
+                    (None, None, None) => {
+                        ASTNode::Specifier(Box::new(ret_type))
+                    }
+                    _ => unreachable!()
                 }
-            }
-            CSTNode::ExtDecList {
-                var_dec,
-                ext_dec_list,
-                ..
-            } => {
-                // 顶层变量声明
-                let mut decls = Vec::new();
-                collect_vardecls(node, &mut decls);
-                // 如果只有一个，可以直接返回 VarDecl，否则包在 Block 里
-                ASTNode::Block { stmts: decls }
             }
             CSTNode::CompSt {
                 def_list,
                 stmt_list,
                 ..
             } => {
+                update_current_scope_num(get_current_scope_num()+1);
                 let mut stmts = Vec::new();
                 if let Some(defs) = def_list {
-                    collect_local_decls(defs, &mut stmts);
+                    let mut list = Vec::new();
+                    collect_defs(defs, &mut list);
+                    stmts.push(ASTNode::VarDecl(list));
                 }
                 collect_stmts(stmt_list, &mut stmts);
+                update_current_scope_num(get_current_scope_num()-1);
                 ASTNode::Block { stmts }
             }
             CSTNode::MatchedStmt {
-                if_stmt: Some(_),
-                expression: Some(cond),
-                matched_stmt_fore: Some(then_),
-                matched_stmt_back: else_opt,
+                if_stmt,
+                while_stmt,
+                expression,
+                matched_stmt_fore,
+                matched_stmt_back,
+                normal_stmt,
                 ..
             } => {
-                let then_node = ASTNode::from_cst(&**then_);
-                let else_node = else_opt.as_ref().map(|b| ASTNode::from_cst(&**b));
-                ASTNode::If {
-                    cond: Box::new(ASTNode::from_cst(&**cond)),
-                    then_br: Box::new(then_node),
-                    else_br: else_node.map(Box::new),
+                let cond = expression.as_ref().map(|e| Box::new(ASTNode::from_cst(e)));
+                let then_br = matched_stmt_fore.as_ref().map(|e| Box::new(ASTNode::from_cst(e)));
+                let else_br = matched_stmt_back.as_ref().map(|e| Box::new(ASTNode::from_cst(e)));
+                match (if_stmt, while_stmt, normal_stmt) {
+                    (Some(_), None, None) => {
+                        let cond_ = cond.unwrap();
+                        let then_br_ = then_br.unwrap();
+                        ASTNode::If { cond: cond_, then_br: then_br_, else_br }
+                    }
+                    (None, Some(_), None) => {
+                        let cond_ = cond.unwrap();
+                        let body_ = then_br.unwrap();
+                        ASTNode::While { cond: cond_, body: body_ }
+                    }
+                    (None, None, Some(stmt)) => {
+                        ASTNode::from_cst(stmt)
+                    }
+                    _ => {
+                        println!("不正确的 MatchedStmt");
+                        unreachable!()
+                    }
                 }
             }
             CSTNode::UnMatchedStmt {
-                while_stmt: Some(_),
-                expression: Some(cond),
-                stmt: Some(body),
+                while_stmt,
+                expression,
+                stmt,
+                if_stmt,
+                else_stmt,
+                matched_stmt,
+                unmatched_stmt,
                 ..
-            } => ASTNode::While {
-                cond: Box::new(ASTNode::from_cst(&**cond)),
-                body: Box::new(ASTNode::from_cst(&**body)),
-            },
-            CSTNode::NormalStmt {
-                return_stmt: Some(_),
-                expression: expr_opt,
-                ..
-            } => ASTNode::Return {
-                expr: expr_opt.as_ref().map(|e| Box::new(ASTNode::from_cst(&**e))),
-            },
-            CSTNode::NormalStmt {
-                expression: Some(expr),
-                ..
-            } => ASTNode::ExprStmt {
-                expr: Box::new(ASTNode::from_cst(&**expr)),
-            },
-            CSTNode::VarList { para_dec, sepa, var_list } => {
-                if let Some(value) = sepa {
-                    let list = var_list.unwrap();
-                    collexct_paradec(list, &mut items);
+            } => {
+                let cond = expression.as_ref().map(|e| Box::new(ASTNode::from_cst(e)));
+                if while_stmt.is_some() {
+                    let body = ASTNode::from_cst(unmatched_stmt.clone().unwrap().as_ref());
+                    ASTNode::While { cond: cond.unwrap(), body: Box::new(body) }
+                } else if if_stmt.is_some() && else_stmt.is_some() {
+                    let then_br = matched_stmt.as_ref().map(|e| Box::new(ASTNode::from_cst(e)));
+                    let else_br = unmatched_stmt.as_ref().map(|e| Box::new(ASTNode::from_cst(e)));
+                    ASTNode::If { cond: cond.unwrap(), then_br: then_br.unwrap(), else_br }
+                } else if if_stmt.is_some() && !else_stmt.is_some() {
+                    let then_br = stmt.as_ref().map(|e| Box::new(ASTNode::from_cst(e)));
+                    ASTNode::If { cond: cond.unwrap(), then_br: then_br.unwrap(), else_br: None }
+                } else {
+                    unreachable!()
                 }
+            },
+            CSTNode::NormalStmt {
+                return_stmt,
+                expression,
+                compst,
+                ..
+            } => {
+                if return_stmt.is_some() {
+                    let expr = expression.as_ref().map(|e| Box::new(ASTNode::from_cst(e)));
+                    ASTNode::Return { expr }
+                } else if let Some(value) = expression {
+                    ASTNode::from_cst(value.as_ref())
+                } else {
+                    let value = compst.clone().unwrap();
+                    ASTNode::from_cst(value.as_ref())
+                }
+            },
+            CSTNode::Def { spec, dec_list, .. } => {
+                let var_type = extract_spec(spec);
+                let var_decs = collect_decs(var_type, dec_list);
+                ASTNode::VarDecl(var_decs)
             }
             CSTNode::Assign {
                 logical_or,
@@ -111,8 +163,7 @@ impl ASTNode {
             } => {
                 let lhs = ASTNode::from_cst(logical_or);
                 if let Some(prime) = assign_prime {
-                    let ast_node = extract_assign(&lhs, prime);
-                    ast_node
+                    extract_assign(&lhs, prime)
                 } else {
                     ASTNode::BinaryOp { op: None, lhs: Box::new(lhs), rhs: None }
                 }
@@ -120,8 +171,7 @@ impl ASTNode {
             CSTNode::LogicalOr { logical_and, logical_or_prime } => {
                 let lhs = ASTNode::from_cst(logical_and);
                 if let Some(prime) = logical_or_prime {
-                    let ast_node = extract_logical_or(&lhs, prime);
-                    ast_node
+                    extract_logical_or(&lhs, prime)
                 } else {
                     ASTNode::BinaryOp { op: None, lhs: Box::new(lhs), rhs: None }
                 }
@@ -129,8 +179,7 @@ impl ASTNode {
             CSTNode::LogicalAnd { equality, logical_and_prime } => {
                 let lhs = ASTNode::from_cst(equality);
                 if let Some(prime) = logical_and_prime {
-                    let ast_node = extract_logical_and(&lhs, prime);
-                    ast_node
+                    extract_logical_and(&lhs, prime)
                 } else {
                     ASTNode::BinaryOp { op: None, lhs: Box::new(lhs), rhs: None }
                 }
@@ -138,8 +187,7 @@ impl ASTNode {
             CSTNode::Equality { comparison, equality_prime } => {
                 let lhs = ASTNode::from_cst(comparison);
                 if let Some(prime) = equality_prime {
-                    let ast_node = extract_equality(&lhs, prime);
-                    ast_node
+                    extract_equality(&lhs, prime)
                 } else {
                     ASTNode::BinaryOp { op: None, lhs: Box::new(lhs), rhs: None }
                 }
@@ -147,8 +195,7 @@ impl ASTNode {
             CSTNode::Comparison { term, comparison_prime } => {
                 let lhs = ASTNode::from_cst(term);
                 if let Some(prime) = comparison_prime {
-                    let ast_node = extract_comparison(&lhs, prime);
-                    ast_node
+                    extract_comparison(&lhs, prime)
                 } else {
                     ASTNode::BinaryOp { op: None, lhs: Box::new(lhs), rhs: None }
                 }
@@ -156,8 +203,7 @@ impl ASTNode {
             CSTNode::Term {factor, term_prime } => {
                 let lhs = ASTNode::from_cst(factor);
                 if let Some(prime) = term_prime {
-                    let ast_node = extract_term(&lhs, prime);
-                    ast_node
+                    extract_term(&lhs, prime)
                 } else {
                     ASTNode::BinaryOp { op: None, lhs: Box::new(lhs), rhs: None }
                 }
@@ -165,8 +211,7 @@ impl ASTNode {
             CSTNode::Factor { unary, factor_prime } => {
                 let lhs = ASTNode::from_cst(unary);
                 if let Some(prime) = factor_prime {
-                    let ast_node = extract_factor(&lhs, prime);
-                    ast_node
+                    extract_factor(&lhs, prime)
                 } else {
                     ASTNode::BinaryOp { op: None, lhs: Box::new(lhs), rhs: None }
                 }
@@ -182,7 +227,7 @@ impl ASTNode {
             CSTNode::Primary {
                 symbol: Some(value), ..
             } => {
-                if symbol_is_literal(value) {
+                if symbol_is_literal(&value.types) {
                     ASTNode::Literal(value.clone())
                 } else {
                     ASTNode::Ident(value.clone())
@@ -204,6 +249,62 @@ impl ASTNode {
     }
 }
 
+// TODO:
+// BUG:
+fn collect_decs(var_type: Type, node: &CSTNode) -> Vec<VarDec> {
+    match node {
+        CSTNode::DecList { dec, dec_list, .. } => {
+            let mut items: Vec<VarDec> = vec![];
+            let var_dec = extract_dec(var_type.clone(), dec);
+            items.push(var_dec.clone());
+            build_symbol_table(&var_dec, get_current_scope_num(), None);
+            if let Some(list) = dec_list {
+                let var_list = collect_decs(var_type.clone(), list);
+                items.extend(var_list);
+                items
+            } else {
+                items
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+fn collect_paradec(node: &CSTNode, items: &mut Vec<VarDec>) {
+    match node {
+        CSTNode::VarList {
+            para_dec, var_list, ..
+        } => {
+            let param = extract_param(para_dec);
+            items.push(param);
+            if let Some(list) = var_list {
+                collect_paradec(list, items);
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+// TODO:
+fn collect_extdecs(var_type: Type, node: &CSTNode, items: &mut Vec<VarDec>) {
+    match node {
+        CSTNode::ExtDecList {
+            var_dec,
+            ext_dec_list,
+            ..
+        } => {
+            let var_dec = extract_dec(var_type.clone(), var_dec);
+            items.push(var_dec);
+            if let Some(list) = ext_dec_list {
+                collect_extdecs(var_type.clone(), list, items);
+            } else {
+                // nothing
+            }
+        }
+        _ => {
+            unreachable!()
+        }
+    }
+}
 fn collect_extdefs(node: &CSTNode, items: &mut Vec<ASTNode>) {
     match node {
         CSTNode::ExtDefList {
@@ -222,83 +323,144 @@ fn collect_extdefs(node: &CSTNode, items: &mut Vec<ASTNode>) {
         }
     }
 }
-fn collect_extdecs(node: &CSTNode, items: &mut Vec<ASTNode>) {
-    todo!()
-}
-fn extract_struct_sepc(node: &CSTNode) -> Vec<String> {
+fn extract_dec(var_type: Type, node: &CSTNode) -> VarDec {
     match node {
-        CSTNode::StructSpecifier {
-            struct_type,
-            id,
-            lc,
-            rc,
-            def_list,
+        CSTNode::Dec {
+            var_dec,
+            op,
+            expression,
         } => {
-            let mut items: Vec<String> = vec![];
-            items.push(struct_type.clone());
-            if let Some(value) = id {
-                items.push(value.clone())
+            let var_name = extract_vardec(var_dec);
+            if let Some(value) = op {
+                if value.eq("=") {
+                    let node = expression.clone().unwrap();
+                    let init = ASTNode::from_cst(&node.clone());
+                    VarDec {
+                        var_type,
+                        var_name,
+                        init: Some(init),
+                    }
+                } else {
+                    println!("unexpected op");
+                    VarDec {
+                        var_type: Type::BaseType(String::new()),
+                        var_name: String::new(),
+                        init: None,
+                    }
+                }
+            } else {
+                VarDec {
+                    var_type,
+                    var_name,
+                    init: None,
+                }
             }
-            if let Some(value) = lc {
-                items.push(value.clone())
-            }
-            if let Some(list) = def_list {
-                collect_defs(list, &mut items);
-            }
-            if let Some(value) = rc {
-                items.push(value.clone())
-            }
-            items
         }
         _ => unreachable!(),
     }
 }
-fn extract_spec(spec: &CSTNode) -> (Option<String>, Option<Vec<String>>) {
-    match spec {
-        CSTNode::Specifier {
-            specifier_type,
-            struct_specifier,
+fn extract_vardec(node: &CSTNode) -> String {
+    match node {
+        CSTNode::VarDec {
+            id,
+            var_dec,
+            lt,
+            rt,
+            literal,
         } => {
-            if let Some(value) = specifier_type {
-                (Some(value.clone()), None)
-            } else if let Some(struct_value) = struct_specifier {
-                let ret = extract_struct_sepc(struct_value);
-                (None, Some(ret))
+            let mut var_name = String::new();
+            if let Some(value) = id {
+                var_name.push_str(value);
+                var_name
+            } else if let Some(value) = var_dec {
+                let id_ = extract_vardec(value);
+                let literal_value = literal
+                    .clone()
+                    .unwrap_or_default()
+                    .parse::<u32>()
+                    .expect("数组的长度必须是正整数");
+                var_name.push_str(&id_);
+                var_name.push_str(&lt.clone().unwrap_or_default());
+                var_name.push_str(&literal_value.to_string());
+                var_name.push_str(&rt.clone().unwrap_or_default());
+                var_name
             } else {
-                // 不应该出现既不是自定义的结构体
-                // 也不是基本的类型
                 unreachable!()
             }
         }
         _ => unreachable!(),
     }
 }
-fn extract_fundec(fun: &CSTNode) -> (String, Vec<(String, String)>) {
-    /* … */
-    todo!()
+fn extract_param(node: &CSTNode) -> VarDec {
+    match node {
+        CSTNode::ParaDec { spec, var_dec } => {
+            let var_type = extract_spec(spec);
+            let var_name = extract_vardec(var_dec);
+            VarDec {
+                var_type,
+                var_name,
+                init: None,
+            }
+        }
+        _ => unreachable!(),
+    }
 }
-fn extract_arguments(arg_node: Option<&CSTNode>) -> Vec<ASTNode> {
-    /* … */
-    todo!()
+// TODO:
+fn extract_fundec(node: &CSTNode) -> (String, Vec<VarDec>) {
+    match node {
+        CSTNode::FunDec { id, var_list, .. } => {
+            let mut params: Vec<VarDec> = vec![];
+            if let Some(list) = var_list {
+                collect_paradec(list, &mut params);
+                (id.clone(), params)
+            } else {
+                (id.clone(), params)
+            }
+        }
+        _ => unreachable!(),
+    }
 }
-fn collect_local_decls(node: &CSTNode, out: &mut Vec<ASTNode>) {
-    /* … */
-    todo!()
+fn extract_struct_sepc(node: &CSTNode) -> StructType {
+    match node {
+        CSTNode::StructSpecifier { id, def_list, .. } => {
+            let mut items: Vec<VarDec> = vec![];
+            if let Some(list) = def_list {
+                collect_defs(list, &mut items);
+            }
+            StructType {
+                id: id.clone().unwrap_or_default(),
+                field: items,
+            }
+        }
+        _ => unreachable!(),
+    }
 }
-fn collect_stmts(node: &CSTNode, out: &mut Vec<ASTNode>) {
-    /* … */
-    todo!()
+fn extract_spec(spec: &CSTNode) -> Type {
+    match spec {
+        CSTNode::Specifier {
+            specifier_type,
+            struct_specifier,
+        } => {
+            if let Some(value) = specifier_type {
+                Type::BaseType(value.clone())
+            } else if let Some(struct_value) = struct_specifier {
+                let ret = extract_struct_sepc(struct_value);
+                Type::CustomizedType(ret)
+            } else {
+                unreachable!()
+            }
+        }
+        _ => unreachable!(),
+    }
 }
-fn collect_vardecls(node: &CSTNode, out: &mut Vec<ASTNode>) {
-    /* … */
-    todo!()
-}
-fn collect_defs(node: &CSTNode, items: &mut Vec<String>) {
+// BUG:
+fn collect_defs(node: &CSTNode, items: &mut Vec<VarDec>) {
     match node {
         CSTNode::DefList { def, def_list } => {
-            items.push(ASTNode::from_cst(ext_def));
-            if let Some(list) = ext_def_list {
-                collect_extdefs(list, items);
+            let mut var_dec_list = extract_def(def);
+            items.append(&mut var_dec_list);
+            if let Some(list) = def_list {
+                collect_defs(list, items);
             } else {
                 // do nothing
             }
@@ -308,7 +470,46 @@ fn collect_defs(node: &CSTNode, items: &mut Vec<String>) {
         }
     }
 }
-// fn extract_def(node: &CSTNode, items: &mut Vec<>)
+// TODO:
+// fn collect_local_decls(node: &CSTNode, items: &mut Vec<ASTNode>) {
+//     todo!()
+// }
+// TODO:
+fn collect_stmts(node: &CSTNode, items: &mut Vec<ASTNode>) {
+    match node {
+        CSTNode::StmtList { stmt, stmt_list } => {
+            items.push(extract_stmt(stmt));
+            if let Some(list) = stmt_list {
+                collect_stmts(list, items);
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+fn extract_stmt(node: &CSTNode) -> ASTNode {
+    match node {
+        CSTNode::Stmt {
+            unmatched_stmt,
+            matched_stmt,
+        } => match (unmatched_stmt, matched_stmt) {
+            (Some(stmt), None) => ASTNode::from_cst(stmt),
+            (None, Some(stmt)) => ASTNode::from_cst(stmt),
+            _ => {
+                unreachable!()
+            }
+        },
+        _ => unreachable!(),
+    }
+}
+fn extract_def(node: &CSTNode) -> Vec<VarDec> {
+    match node {
+        CSTNode::Def { spec, dec_list, .. } => {
+            let var_type = extract_spec(spec);
+            collect_decs(var_type, dec_list)
+        }
+        _ => unreachable!(),
+    }
+}
 // 由于文法的错误最多只能接受两个参数
 // TODO:
 // WARN:
@@ -319,16 +520,14 @@ fn colloct_arguments(node: &CSTNode) -> Vec<ASTNode> {
             expression,
         } => {
             let mut args: Vec<ASTNode> = vec![];
-            args.push(ASTNode::from_cst(&expression));
+            args.push(ASTNode::from_cst(expression));
             if let Some(next_arg) = arguments_tail {
                 args.extend(colloct_arguments(next_arg));
             }
             args
         }
         CSTNode::ArgumentsTail { expression, .. } => {
-            let mut args: Vec<ASTNode> = vec![];
-            args.push(ASTNode::from_cst(&expression));
-            args
+            vec![ASTNode::from_cst(expression)]
         }
         _ => unreachable!(),
     }
@@ -360,6 +559,10 @@ fn extract_assign(lhs: &ASTNode, node: &CSTNode) -> ASTNode {
         } => {
             if let Some(prime) = assign_prime {
                 let rhs = extract_assign(&ASTNode::from_cst(logical_or), prime);
+                if !check_types(lhs, &rhs) {
+                    println!("lhs's types is different from rhs, {:?} {:?}", lhs, rhs);
+                    unreachable!();
+                }
                 ASTNode::BinaryOp {
                     op: Some(op.clone()),
                     lhs: Box::new(lhs.clone()),
@@ -367,6 +570,10 @@ fn extract_assign(lhs: &ASTNode, node: &CSTNode) -> ASTNode {
                 }
             } else {
                 let rhs = ASTNode::from_cst(logical_or);
+                if !check_types(lhs, &rhs) {
+                    println!("lhs's types is different from rhs, {:?} {:?}", lhs, rhs);
+                    unreachable!();
+                }
                 ASTNode::BinaryOp {
                     op: Some(op.clone()),
                     lhs: Box::new(lhs.clone()),
@@ -386,6 +593,10 @@ fn extract_logical_or(lhs: &ASTNode, node: &CSTNode) -> ASTNode {
         } => {
             if let Some(prime) = logical_or_prime {
                 let rhs = ASTNode::from_cst(logical_and);
+                if !check_types(lhs, &rhs) {
+                    println!("lhs's types is different from rhs, {:?} {:?}", lhs, rhs);
+                    unreachable!();
+                }
                 let ast_node = ASTNode::BinaryOp {
                     op: Some(op.clone()),
                     lhs: Box::new(lhs.clone()),
@@ -393,14 +604,21 @@ fn extract_logical_or(lhs: &ASTNode, node: &CSTNode) -> ASTNode {
                 };
                 extract_logical_or(&ast_node, prime)
             } else {
+                let rhs = ASTNode::from_cst(logical_and);
+                if !check_types(lhs, &rhs) {
+                    println!("lhs's types is different from rhs, {:?} {:?}", lhs, rhs);
+                    unreachable!();
+                }
                 ASTNode::BinaryOp {
                     op: Some(op.clone()),
                     lhs: Box::new(lhs.clone()),
-                    rhs: Some(Box::new(ASTNode::from_cst(logical_and))),
+                    rhs: Some(Box::new(rhs)),
                 }
             }
         }
-        _ => unreachable!(),
+        _ => {
+            unreachable!();
+        }
     }
 }
 fn extract_logical_and(lhs: &ASTNode, node: &CSTNode) -> ASTNode {
@@ -412,17 +630,26 @@ fn extract_logical_and(lhs: &ASTNode, node: &CSTNode) -> ASTNode {
         } => {
             if let Some(prime) = logical_and_prime {
                 let rhs = ASTNode::from_cst(equality);
+                if !check_types(lhs, &rhs) {
+                    println!("lhs's types is different from rhs, {:?} {:?}", lhs, rhs);
+                    unreachable!();
+                }
                 let ast_node = ASTNode::BinaryOp {
                     op: Some(op.clone()),
                     lhs: Box::new(lhs.clone()),
                     rhs: Some(Box::new(rhs)),
                 };
-                extract_logical_or(&ast_node, prime)
+                extract_logical_and(&ast_node, prime)
             } else {
+                let rhs = ASTNode::from_cst(equality);
+                if !check_types(lhs, &rhs) {
+                    println!("lhs's types is different from rhs, {:?} {:?}", lhs, rhs);
+                    unreachable!();
+                }
                 ASTNode::BinaryOp {
                     op: Some(op.clone()),
                     lhs: Box::new(lhs.clone()),
-                    rhs: Some(Box::new(ASTNode::from_cst(equality))),
+                    rhs: Some(Box::new(rhs)),
                 }
             }
         }
@@ -438,17 +665,26 @@ fn extract_equality(lhs: &ASTNode, node: &CSTNode) -> ASTNode {
         } => {
             if let Some(prime) = equality_prime {
                 let rhs = ASTNode::from_cst(comparison);
+                if !check_types(lhs, &rhs) {
+                    println!("lhs's types is different from rhs, {:?} {:?}", lhs, rhs);
+                    unreachable!();
+                }
                 let ast_node = ASTNode::BinaryOp {
                     op: Some(op.clone()),
                     lhs: Box::new(lhs.clone()),
                     rhs: Some(Box::new(rhs)),
                 };
-                extract_logical_or(&ast_node, prime)
+                extract_equality(&ast_node, prime)
             } else {
+                let rhs = ASTNode::from_cst(comparison);
+                if !check_types(lhs, &rhs) {
+                    println!("lhs's types is different from rhs, {:?} {:?}", lhs, rhs);
+                    unreachable!();
+                }
                 ASTNode::BinaryOp {
                     op: Some(op.clone()),
                     lhs: Box::new(lhs.clone()),
-                    rhs: Some(Box::new(ASTNode::from_cst(comparison))),
+                    rhs: Some(Box::new(rhs)),
                 }
             }
         }
@@ -464,17 +700,26 @@ fn extract_comparison(lhs: &ASTNode, node: &CSTNode) -> ASTNode {
         } => {
             if let Some(prime) = comparison_prime {
                 let rhs = ASTNode::from_cst(term);
+                if !check_types(lhs, &rhs) {
+                    println!("lhs's types is different from rhs, {:?} {:?}", lhs, rhs);
+                    unreachable!();
+                }
                 let ast_node = ASTNode::BinaryOp {
                     op: Some(op.clone()),
                     lhs: Box::new(lhs.clone()),
                     rhs: Some(Box::new(rhs)),
                 };
-                extract_logical_or(&ast_node, prime)
+                extract_comparison(&ast_node, prime)
             } else {
+                let rhs = ASTNode::from_cst(term);
+                if !check_types(lhs, &rhs) {
+                    println!("lhs's types is different from rhs, {:?} {:?}", lhs, rhs);
+                    unreachable!();
+                }
                 ASTNode::BinaryOp {
                     op: Some(op.clone()),
                     lhs: Box::new(lhs.clone()),
-                    rhs: Some(Box::new(ASTNode::from_cst(term))),
+                    rhs: Some(Box::new(rhs)),
                 }
             }
         }
@@ -490,17 +735,26 @@ fn extract_term(lhs: &ASTNode, node: &CSTNode) -> ASTNode {
         } => {
             if let Some(prime) = term_prime {
                 let rhs = ASTNode::from_cst(factor);
+                if !check_types(lhs, &rhs) {
+                    println!("lhs's types is different from rhs, {:?} {:?}", lhs, rhs);
+                    unreachable!();
+                }
                 let ast_node = ASTNode::BinaryOp {
                     op: Some(op.clone()),
                     lhs: Box::new(lhs.clone()),
                     rhs: Some(Box::new(rhs)),
                 };
-                extract_logical_or(&ast_node, prime)
+                extract_term(&ast_node, prime)
             } else {
+                let rhs = ASTNode::from_cst(factor);
+                if !check_types(lhs, &rhs) {
+                    println!("lhs's types is different from rhs, {:?} {:?}", lhs, rhs);
+                    unreachable!();
+                }
                 ASTNode::BinaryOp {
                     op: Some(op.clone()),
                     lhs: Box::new(lhs.clone()),
-                    rhs: Some(Box::new(ASTNode::from_cst(factor))),
+                    rhs: Some(Box::new(rhs)),
                 }
             }
         }
@@ -516,17 +770,26 @@ fn extract_factor(lhs: &ASTNode, node: &CSTNode) -> ASTNode {
         } => {
             if let Some(prime) = factor_prime {
                 let rhs = ASTNode::from_cst(unary);
+                if !check_types(lhs, &rhs) {
+                    println!("lhs's types is different from rhs, {:?} {:?}", lhs, rhs);
+                    unreachable!();
+                }
                 let ast_node = ASTNode::BinaryOp {
                     op: Some(op.clone()),
                     lhs: Box::new(lhs.clone()),
                     rhs: Some(Box::new(rhs)),
                 };
-                extract_logical_or(&ast_node, prime)
+                extract_factor(&ast_node, prime)
             } else {
+                let rhs = ASTNode::from_cst(unary);
+                if !check_types(lhs, &rhs) {
+                    println!("lhs's types is different from rhs, {:?} {:?}", lhs, rhs);
+                    unreachable!();
+                }
                 ASTNode::BinaryOp {
                     op: Some(op.clone()),
                     lhs: Box::new(lhs.clone()),
-                    rhs: Some(Box::new(ASTNode::from_cst(unary))),
+                    rhs: Some(Box::new(rhs)),
                 }
             }
         }

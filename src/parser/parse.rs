@@ -4,7 +4,7 @@ use crate::lexer::lexer::Token;
 use crate::utils::types::PhraseType;
 use std::vec::Vec;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CSTNode {
     Assign {
         logical_or: Box<CSTNode>,
@@ -200,7 +200,7 @@ pub enum CSTNode {
         unary: Box<CSTNode>,
     },
     Primary {
-        symbol: Option<String>,
+        symbol: Option<Token>,
         lp: Option<String>,
         rp: Option<String>,
         expression: Option<Box<CSTNode>>,
@@ -1091,7 +1091,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
                     83..87 => {
                         let symbol = sym.pop().unwrap();
                         let node = CSTNode::Primary {
-                            symbol: Some(symbol.value),
+                            symbol: Some(symbol),
                             fun_call: None,
                             expression: None,
                             lp: None,
@@ -1209,29 +1209,30 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<CSTNode> {
             Action::Error => {
                 let tok = look.unwrap();
                 error_handler(&state, tok);
+                break;
                 // skip error token
-                loop {
-                    let look = tokens.get(index);
-                    match look {
-                        Some(token) => {
-                            if token.types == PhraseType::Separator {
-                                index += 1;
-                                break;
-                            } else {
-                                index += 1;
-                            }
-                        }
-                        None => break,
-                    }
-                }
-                if let Some(token) = tokens.get(index) {
-                    println!("start over token {:?}", token);
-                    state.clear();
-                    state.push(State::S0);
-                    continue;
-                } else {
-                    break;
-                }
+                //     loop {
+                //         let look = tokens.get(index);
+                //         match look {
+                //             Some(token) => {
+                //                 if token.types == PhraseType::Separator {
+                //                     index += 1;
+                //                     break;
+                //                 } else {
+                //                     index += 1;
+                //                 }
+                //             }
+                //             None => break,
+                //         }
+                //     }
+                //     if let Some(token) = tokens.get(index) {
+                //         println!("start over token {:?}", token);
+                //         state.clear();
+                //         state.push(State::S0);
+                //         continue;
+                //     } else {
+                //         break;
+                //     }
             }
         }
     }
