@@ -1,14 +1,20 @@
 use std::env;
 
 // 词法分析器模块
+mod asm;
 mod ast;
+mod ir;
 mod lexer;
 mod parser;
 mod utils;
+use asm::asmgen::asm_gen;
+use asm::write_asm::write_asm;
 use ast::astgen::ast_gen;
+use ir::irgen::ir_gen;
 use parser::parse::parse;
 use utils::helper::print_ast;
 use utils::helper::print_cst;
+use utils::helper::print_ir;
 use utils::helper::print_tokens;
 
 // mod utils;
@@ -29,6 +35,8 @@ fn main() {
     // print_cst(&cst);
     let ast = ast_gen(&cst);
     print_ast(&ast);
-    // let ir_tokens
-    // let asm_tokens
+    let ir = ir_gen(&ast);
+    print_ir(&ir);
+    let asm = asm_gen(&ir);
+    write_asm(&asm, &filename);
 }

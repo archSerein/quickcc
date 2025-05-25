@@ -1,7 +1,9 @@
 use crate::lexer::lexer::Token;
 use crate::utils::types::PhraseType;
 
-use super::helper::{get_current_scope_num, look_up_symbol_table, print_symbol_table};
+use super::helper::{
+    get_current_func, get_current_scope_num, look_up_symbol_table, travel_symbol_table,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructType {
@@ -51,10 +53,6 @@ pub enum ASTNode {
     Return {
         expr: Option<Box<ASTNode>>,
     },
-    ExprStmt {
-        expr: Box<ASTNode>,
-    },
-
     // —— 表达式 ——
     BinaryOp {
         op: Option<String>,

@@ -1,4 +1,5 @@
 use crate::ast::types::ASTNode;
+use crate::ir::irgen::IrType;
 use crate::lexer::lexer::*;
 use crate::parser::parse::CSTNode;
 
@@ -22,6 +23,12 @@ pub fn print_ast(node: &Vec<ASTNode>) {
 pub fn print_tokens(tokens: &Vec<Token>) {
     for token in tokens {
         println!("{:?} {:?}", token.types, token.value);
+    }
+}
+
+pub fn print_ir(tokens: &Vec<IrType>) {
+    for token in tokens {
+        println!("{:?}", token);
     }
 }
 

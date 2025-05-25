@@ -3,15 +3,6 @@ use super::types::State;
 use crate::lexer::lexer::Token;
 use crate::utils::types::PhraseType;
 
-pub fn look_forward(tokens: &Vec<Token>, start: usize, len: usize) -> Vec<Token> {
-    if start >= tokens.len() {
-        vec![]
-    } else {
-        let end = usize::min(start + len, tokens.len());
-        tokens[start..end].to_vec()
-    }
-}
-
 pub fn error_handler(state: &Vec<State>, look: &Token) {
     // 分析异常原因
     println!(
@@ -25,13 +16,6 @@ pub fn is_type_keyword(value: &String) -> bool {
     matches!(
         value.as_str(),
         "int" | "uint" | "float" | "double" | "char" | "String"
-    )
-}
-
-pub fn is_control_keyword(value: &String) -> bool {
-    matches!(
-        value.as_str(),
-        "if" | "else" | "while" | "for" | "return" | "break" | "continue"
     )
 }
 
