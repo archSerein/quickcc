@@ -1,0 +1,3 @@
+[submodule "tools/lalr1-table-generator"]
+	path = tools/lalr1-table-generator
+	url = https://github.com/alexpizarroj/lalr1-table-generator
