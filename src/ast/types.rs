@@ -69,9 +69,6 @@ pub enum ASTNode {
         func: String,
         args: Vec<ASTNode>,
     },
-    Args {
-        args: Vec<Box<ASTNode>>,
-    },
     Literal(Token),
     Ident(Token),
 }
@@ -167,18 +164,10 @@ impl ASTNode {
             ASTNode::Return { expr } => ASTNode::Return {
                 expr: expr.map(|e| Box::new(e.optimal())),
             },
-            // 表达式语句递归
-            ASTNode::ExprStmt { expr } => ASTNode::ExprStmt {
-                expr: Box::new(expr.optimal()),
-            },
             // Call 递归
             ASTNode::Call { func, args } => ASTNode::Call {
                 func,
                 args: args.into_iter().map(|a| a.optimal()).collect(),
-            },
-            // Args 递归
-            ASTNode::Args { args } => ASTNode::Args {
-                args: args.into_iter().map(|a| Box::new(a.optimal())).collect(),
             },
             // FuncDef 递归
             ASTNode::FuncDef {
@@ -209,8 +198,15 @@ impl ASTNode {
     pub fn get_ast_type(node: &ASTNode) -> Option<Type> {
         match node {
             ASTNode::Ident(id) => {
-                let symbol_info = look_up_symbol_table(&id.value);
-                Some(symbol_info.unwrap().0.var_type)
+                let symbol_info =
+                    travel_symbol_table(&id.value, get_current_scope_num(), get_current_func());
+                if let Some(value) = symbol_info {
+                    Some(value.0.var_type)
+                } else {
+                    println!("{:?}", get_current_func());
+                    println!("{:?} is undefined", id);
+                    None
+                }
             }
             ASTNode::Literal(literal) => match literal.types {
                 PhraseType::Bool => Some(Type::BaseType(String::from("bool"))),
@@ -229,6 +225,14 @@ impl ASTNode {
             ASTNode::UnaryOp { expr, .. } => {
                 let expr_ = expr.as_ref();
                 ASTNode::get_ast_type(expr_)
+            }
+            ASTNode::Call { func, .. } => {
+                let symbol = look_up_symbol_table(func.clone(), 0);
+                if let Some(fun) = symbol {
+                    Some(fun.0.var_type)
+                } else {
+                    None
+                }
             }
             _ => None,
         }

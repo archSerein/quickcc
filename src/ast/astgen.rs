@@ -1,7 +1,7 @@
 use super::{
     helper::{
-        build_symbol_table, check_types, get_current_scope_num, print_symbol_table,
-        update_current_scope_num,
+        build_symbol_table, check_entry_func, check_types, get_current_func, get_current_scope_num,
+        print_symbol_table, set_current_func, update_current_scope_num,
     },
     types::{ASTNode, StructType, Type, VarDec},
 };
@@ -13,6 +13,10 @@ pub fn ast_gen(cst: &Vec<CSTNode>) -> Vec<ASTNode> {
     for node in cst {
         let ast_node = ASTNode::from_cst(node);
         ast.push(ast_node.optimal());
+    }
+    if !check_entry_func() {
+        println!("No entry function main is defined");
+        unreachable!()
     }
     print_symbol_table();
     ast
@@ -43,7 +47,7 @@ impl ASTNode {
                             var_name: name.clone(),
                             init: None
                         };
-                        build_symbol_table(&var_info, get_current_scope_num(), Some(params.clone()));
+                        build_symbol_table(get_current_func(),&var_info, get_current_scope_num(), Some(params.clone()));
                         let body_block = ASTNode::from_cst(compst);
                         ASTNode::FuncDef {
                             name,
@@ -257,7 +261,7 @@ fn collect_decs(var_type: Type, node: &CSTNode) -> Vec<VarDec> {
             let mut items: Vec<VarDec> = vec![];
             let var_dec = extract_dec(var_type.clone(), dec);
             items.push(var_dec.clone());
-            build_symbol_table(&var_dec, get_current_scope_num(), None);
+            build_symbol_table(get_current_func(), &var_dec, get_current_scope_num(), None);
             if let Some(list) = dec_list {
                 let var_list = collect_decs(var_type.clone(), list);
                 items.extend(var_list);
@@ -276,6 +280,12 @@ fn collect_paradec(node: &CSTNode, items: &mut Vec<VarDec>) {
             para_dec, var_list, ..
         } => {
             let param = extract_param(para_dec);
+            build_symbol_table(
+                get_current_func(),
+                &param,
+                get_current_scope_num() + 1,
+                None,
+            );
             items.push(param);
             if let Some(list) = var_list {
                 collect_paradec(list, items);
@@ -409,6 +419,7 @@ fn extract_param(node: &CSTNode) -> VarDec {
 fn extract_fundec(node: &CSTNode) -> (String, Vec<VarDec>) {
     match node {
         CSTNode::FunDec { id, var_list, .. } => {
+            set_current_func(id.clone());
             let mut params: Vec<VarDec> = vec![];
             if let Some(list) = var_list {
                 collect_paradec(list, &mut params);
