@@ -7,7 +7,6 @@ mod ir;
 mod lexer;
 mod parser;
 mod utils;
-use asm::asmgen::asm_gen;
 use asm::write_asm::write_asm;
 use ast::astgen::ast_gen;
 use ir::irgen::ir_gen;
@@ -37,6 +36,5 @@ fn main() {
     print_ast(&ast);
     let ir = ir_gen(&ast);
     print_ir(&ir);
-    let asm = asm_gen(&ir);
-    write_asm(&asm, &filename);
+    write_asm(&ir, &filename);
 }

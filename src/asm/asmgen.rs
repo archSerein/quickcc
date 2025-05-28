@@ -1,9 +1,7 @@
-use super::AVAILABLE_REGS;
 use crate::ir::irgen::IrType;
 use std::collections::HashMap;
 
 fn is_hexadecimal(s: &str) -> bool {
-    // 必须以0x或0X开头，并且后面是合法的十六进制字符
     if let Some(rest) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
         return u64::from_str_radix(rest, 16).is_ok();
     }
@@ -16,228 +14,183 @@ fn is_decimal(s: &str) -> bool {
 
 pub fn asm_gen(irs: &[IrType]) -> String {
     let mut asm = String::new();
-    let mut var_offset: HashMap<String, i32> = HashMap::new();
-    let mut reg_map: HashMap<String, String> = HashMap::new();
-    let mut offset = 0;
-    let mut label_count = 0;
-    let mut in_func = false;
-    let mut arg_count = 0;
-    let mut param_count = 0;
-    let mut stack_size = 0;
+    let mut functions = Vec::new();
+    let mut i = 0;
 
-    // 1. _start入口
+    while i < irs.len() {
+        if irs[i].op == "FUNC" {
+            let func_name = irs[i].src1.clone();
+            let mut params = Vec::new();
+            let mut locals = Vec::new();
+            let mut body = Vec::new();
+            i += 1;
+
+            while i < irs.len() && irs[i].op != "ENDFUNC" {
+                let ir = irs[i].clone();
+                body.push(ir.clone());
+                if ir.op == "PARAM" {
+                    if !params.contains(&ir.src1) {
+                        params.push(ir.src1.clone());
+                    }
+                } else {
+                    for var in [&ir.rd, &ir.src1, &ir.src2] {
+                        if !var.is_empty()
+                            && !is_decimal(var)
+                            && !is_hexadecimal(var)
+                            && !params.contains(var)
+                            && !locals.contains(var)
+                        {
+                            locals.push(var.clone());
+                        }
+                    }
+                }
+                i += 1;
+            }
+            functions.push((func_name, params, locals, body));
+        }
+        i += 1;
+    }
+
     asm += ".section .text\n";
     asm += ".globl _start\n";
     asm += "_start:\n";
     asm += "    li sp, 0x80009000\n";
-    asm += "    li s0, 0\n";
-    asm += "    jal main\n";
+    asm += "    call main\n";
     asm += "    ebreak\n";
 
-    for ir in irs {
-        match ir.op.as_str() {
-            "MOV" => {
-                let rd = reg_map.get(&ir.rd).unwrap();
-                if ir.src1.parse::<i32>().is_ok() {
-                    // mov 立即数
-                    asm += &format!("    li {}, {}\n", rd, ir.src1);
-                } else if let Some(src) = reg_map.get(&ir.src1) {
-                    if *rd != *src {
-                        asm += &format!("    mv {}, {}\n", rd, src);
-                    }
-                }
+    for (func_name, params, locals, body) in functions {
+        let mut reg_map: HashMap<String, String> = HashMap::new();
+        let mut stack_offset = 0;
+        let mut reg_idx = 0;
+        let offset = (locals.len() * 4 + 15) / 16 * 16;
+        let mut off = offset - 4;
+        let all_regs = [
+            "t2", "t3", "t4", "t5", "t6", "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8",
+            "s9", "s10", "s11",
+        ];
+
+        asm += &format!("{}:\n", func_name);
+        asm += &format!("    addi sp, sp, -{}\n", offset);
+        asm += &format!("    sw ra, {}(sp)\n", off);
+
+        for (i, param) in params.iter().enumerate() {
+            let preg = format!("a{}", i);
+            let reg = all_regs[reg_idx % all_regs.len()];
+            reg_map.insert(param.clone(), reg.to_string());
+            asm += &format!("    mv {}, {}\n", reg, preg);
+            reg_idx += 1;
+        }
+
+        for local in locals.clone() {
+            if !reg_map.contains_key(&local) {
+                let reg = all_regs[reg_idx % all_regs.len()];
+                reg_map.insert(local.clone(), reg.to_string());
+                reg_idx += 1;
             }
-            "+" | "-" | "*" | "/" => {
-                // src1
-                if ir.src1.parse::<i32>().is_ok() {
-                    asm += &format!("    li t0, {}\n", ir.src1);
-                } else if let Some(src) = reg_map.get(&ir.src1) {
-                    if src != "t0" {
-                        asm += &format!("    mv t0, {}\n", src);
+        }
+
+        for ir in body {
+            match ir.op.as_str() {
+                "MOV" => {
+                    let dst = reg_map.get(&ir.rd).unwrap();
+                    if is_decimal(&ir.src1) {
+                        asm += &format!("    li {}, {}\n", dst, ir.src1);
+                    } else {
+                        let src = reg_map.get(&ir.src1).unwrap();
+                        asm += &format!("    mv {}, {}\n", dst, src);
                     }
                 }
-                // src2
-                if ir.src2.parse::<i32>().is_ok() {
-                    asm += &format!("    li t1, {}\n", ir.src2);
-                } else if let Some(src) = reg_map.get(&ir.src2) {
-                    if src != "t1" {
-                        asm += &format!("    mv t1, {}\n", src);
-                    }
+                "+" | "-" | "*" | "/" => {
+                    let op = match ir.op.as_str() {
+                        "+" => "add",
+                        "-" => "sub",
+                        "*" => "mul",
+                        "/" => "div",
+                        _ => unreachable!(),
+                    };
+                    let dst = reg_map.get(&ir.rd).unwrap();
+                    let src1 = if is_decimal(&ir.src1) {
+                        asm += "    li t0, ";
+                        asm += &ir.src1;
+                        asm += "\n";
+                        "t0"
+                    } else {
+                        reg_map.get(&ir.src1).unwrap()
+                    };
+                    let src2 = if is_decimal(&ir.src2) {
+                        asm += "    li t1, ";
+                        asm += &ir.src2;
+                        asm += "\n";
+                        "t1"
+                    } else {
+                        reg_map.get(&ir.src2).unwrap()
+                    };
+                    asm += &format!("    {} {}, {}, {}\n", op, dst, src1, src2);
                 }
-                // 运算
-                let opstr = match ir.op.as_str() {
-                    "+" => "add",
-                    "-" => "sub",
-                    "*" => "mul",
-                    "/" => "div",
-                    _ => unreachable!(),
-                };
-                asm += &format!("    {} t2, t0, t1\n", opstr);
-                if let Some(rd) = reg_map.get(&ir.rd) {
-                    if rd != "t1" {
-                        asm += &format!("    mv {}, t2\n", rd);
-                    }
-                }
-            }
-            "RET" => {
-                if !ir.src1.is_empty() {
-                    if ir.src1.parse::<i32>().is_ok() {
-                        asm += &format!("    li a0, {}\n", ir.src1);
-                    } else if let Some(src) = reg_map.get(&ir.src1) {
-                        if src != "a0" {
-                            asm += &format!("    mv a0, {}\n", src);
-                        }
-                    }
-                }
-                asm += "    addi sp, sp, ";
-                asm += &format!("{}\n", stack_size);
-                asm += "    ret\n";
-                in_func = false;
-            }
-            "LABEL" => {
-                let label = if !ir.src1.is_empty() {
-                    ir.src1.clone()
-                } else {
-                    label_count += 1;
-                    format!("L{}", label_count)
-                };
-                asm += &format!("{}:\n", label);
-            }
-            "FUNC" => {
-                let start_idx = irs.iter().position(|s| s == ir).unwrap() + 1;
-                let mut reg_iter = AVAILABLE_REGS.iter();
-                for ir in &irs[start_idx..] {
-                    if ir.op == "ENDFUNC" {
-                        break;
-                    }
-                    if !ir.rd.is_empty() && !var_offset.contains_key(&ir.rd) {
-                        offset += 4;
-                        var_offset.insert(ir.rd.clone(), -offset); // sp负偏移
-                        if let Some(&reg) = reg_iter.next() {
-                            reg_map.insert(ir.rd.clone(), reg.to_string());
+                "RET" => {
+                    if !ir.src1.is_empty() {
+                        if is_decimal(&ir.src1) {
+                            asm += &format!("    li a0, {}\n", ir.src1);
                         } else {
-                            println!("寄存器溢出");
-                        }
+                            let r = reg_map.get(&ir.src1).unwrap();
+                            asm += &format!("    mv a0, {}\n", r);
+                        };
                     }
-                    if !ir.src1.is_empty()
-                        && !is_hexadecimal(&ir.src1)
-                        && !is_decimal(&ir.src1)
-                        && !var_offset.contains_key(&ir.src1)
-                    {
-                        offset += 4;
-                        var_offset.insert(ir.src1.clone(), -offset); // sp负偏移
-                        if let Some(&reg) = reg_iter.next() {
-                            reg_map.insert(ir.src1.clone(), reg.to_string());
-                        } else {
-                            println!("寄存器溢出");
-                        }
-                    }
-                    if !ir.src2.is_empty()
-                        && !is_hexadecimal(&ir.src2)
-                        && !is_decimal(&ir.src2)
-                        && !var_offset.contains_key(&ir.src2)
-                    {
-                        offset += 4;
-                        var_offset.insert(ir.src2.clone(), -offset); // sp负偏移
-                        if let Some(&reg) = reg_iter.next() {
-                            reg_map.insert(ir.src2.clone(), reg.to_string());
-                        } else {
-                            println!("寄存器溢出");
-                        }
-                    }
-                }
-                let label = if !ir.src1.is_empty() {
-                    ir.src1.clone()
-                } else {
-                    format!("L{}", label_count)
-                };
-                stack_size = ((offset + 15) / 16) * 16;
-                asm += &format!("{}:\n", label);
-                asm += &format!("    addi sp, sp, -{}\n", stack_size);
-                in_func = true;
-                param_count = 0;
-            }
-            "JMP" => {
-                asm += &format!("    j {}\n", ir.rd);
-            }
-            "JZ" => {
-                // 跳转目标 rd，条件 src1
-                if ir.src1.parse::<i32>().is_ok() {
-                    asm += &format!("    li t0, {}\n", ir.src1);
-                } else if let Some(src) = reg_map.get(&ir.src1) {
-                    asm += &format!("    mv t0, {}\n", src);
-                }
-                asm += &format!("    beqz t0, {}\n", ir.rd);
-            }
-            "JNZ" => {
-                if ir.src1.parse::<i32>().is_ok() {
-                    asm += &format!("    li t0, {}\n", ir.src1);
-                } else if let Some(src) = reg_map.get(&ir.src1) {
-                    asm += &format!("    mv t0, {}\n", src);
-                }
-                asm += &format!("    bnez t0, {}\n", ir.rd);
-            }
-            "ARG" => {
-                if ir.src1.parse::<i32>().is_ok() {
-                    asm += &format!("    li a{}, {}\n", arg_count, ir.src1);
-                } else if let Some(src) = reg_map.get(&ir.src1) {
-                    asm += &format!("    mv a{}, {}\n", arg_count, src);
-                }
-                arg_count += 1;
-            }
-            "CALL" => {
-                let func_name = &ir.src1;
-                asm += &format!("    call {}\n", func_name);
-                // 如果有rd，保存返回值
-                if !ir.rd.is_empty() {
-                    if let Some(rd) = reg_map.get(&ir.rd) {
-                        asm += &format!("    mv {}, a0\n", rd);
-                    }
-                }
-                arg_count = 0;
-            }
-            "ENDFUNC" => {
-                if in_func {
-                    asm += &format!("     addi sp, sp, {}\n", stack_size);
+                    asm += &format!("    lw ra, {}(sp)\n", offset - 4);
+                    asm += &format!("    addi sp, sp, {}\n", offset);
                     asm += "    ret\n";
-                    in_func = false;
                 }
-                var_offset.clear();
-                reg_map.clear();
-            }
-            "PARAM" => {
-                let reg_name = reg_map.get(&ir.src1).unwrap();
-                let param_reg = format!("a{}", param_count);
-                if param_reg != *reg_name {
-                    asm += &format!("    mv {}, {}\n", reg_name, param_reg);
+                "CALL" => {
+                    for local in locals.clone() {
+                        let reg_name = reg_map.get(&local).unwrap();
+                        off -= 4;
+                        asm += &format!("    sw {}, {}(sp)\n", reg_name, off);
+                    }
+                    asm += &format!("    call {}\n", ir.src1);
+                    for local in locals.clone().iter().rev() {
+                        let reg_name = reg_map.get(local).unwrap();
+                        asm += &format!("    lw {}, {}(sp)\n", reg_name, off);
+                        off += 4;
+                    }
+                    if !ir.rd.is_empty() {
+                        let dst = reg_map.get(&ir.rd).unwrap();
+                        asm += &format!("    mv {}, a0\n", dst);
+                    }
                 }
-                param_count += 1;
-            }
-            "<" => {
-                let src_reg = reg_map.get(&ir.src1).unwrap();
-                let rd_reg = reg_map.get(&ir.rd).unwrap();
-                if ir.src2.parse::<i32>().is_ok() {
-                    asm += &format!("    slti {}, {}, {}\n", rd_reg, src_reg, ir.src2);
-                } else {
-                    let src2_reg = reg_map.get(&ir.src2).unwrap();
-                    asm += &format!("    slt {}, {}, {}\n", rd_reg, src_reg, src2_reg);
+                "ARG" => {
+                    let idx = stack_offset;
+                    let src = reg_map.get(&ir.src1).unwrap();
+                    asm += &format!("    mv a{}, {}\n", idx, src);
+                    stack_offset += 1;
                 }
+                "JMP" => {
+                    asm += &format!("    j {}\n", ir.rd);
+                }
+                "JNZ" => {
+                    let cond = reg_map.get(&ir.src1).unwrap();
+                    asm += &format!("    bnez {}, {}\n", cond, ir.rd);
+                }
+                "LABEL" => {
+                    asm += &format!("{}:\n", ir.src1);
+                }
+                "<" => {
+                    let dst = reg_map.get(&ir.rd).unwrap();
+                    let left = reg_map.get(&ir.src1).unwrap();
+                    if is_decimal(&ir.src2) {
+                        asm += &format!("    slti {}, {}, {}\n", dst, left, ir.src2);
+                    } else {
+                        let right = reg_map.get(&ir.src2).unwrap();
+                        asm += &format!("    slt {}, {}, {}\n", dst, left, right);
+                    }
+                }
+                "=" => {
+                    let src = reg_map.get(&ir.src1).unwrap();
+                    let rd = reg_map.get(&ir.rd).unwrap();
+                    asm += &format!("    mv {}, {}\n", rd, src);
+                }
+                _ => {}
             }
-            "=" => {
-                let src_reg = reg_map.get(&ir.src1).unwrap();
-                let rd_reg = reg_map.get(&ir.rd).unwrap();
-                asm += &format!("    mv {}, {}\n", rd_reg, src_reg);
-            }
-            // 扩展
-            _ => {}
         }
     }
-    // 若没RET，补一个返回
-    if !asm.contains("ret") {
-        asm += "     addi sp, sp, ";
-        asm += &format!("{}\n", stack_size);
-        asm += "    ret\n";
-    }
-
     asm
 }
